@@ -8,7 +8,7 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: { styleId: string } }
 ) {
-  const status = getVendorCatalogStatus();
+  const status = await getVendorCatalogStatus();
   if (!status.available) {
     return NextResponse.json(
       {
@@ -24,6 +24,6 @@ export async function GET(
   const styleId = decodeURIComponent(params.styleId);
   return NextResponse.json({
     available: true,
-    variants: getVendorCatalogStyleVariants(styleId),
+    variants: await getVendorCatalogStyleVariants(styleId),
   });
 }

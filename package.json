@@ -2,6 +2,9 @@
   "name": "cmp-pricing-mvp",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -9,12 +12,17 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "catalog:import-vendo": "node scripts/import-vendo-catalog-postgres.mjs",
+    "catalog:seed-sqlite": "node scripts/seed-catalog-from-sqlite.mjs",
+    "catalog:import-sqlite": "node scripts/import-vendo-catalog.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
     "decimal.js": "^10.4.3",
     "next": "^14.2.15",
+    "pg": "^8.16.3",
+    "pg-query-stream": "^4.10.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "server-only": "^0.0.1",
@@ -23,6 +31,7 @@
   "devDependencies": {
     "@playwright/test": "^1.48.0",
     "@types/node": "^20.14.0",
+    "@types/pg": "^8.15.5",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",

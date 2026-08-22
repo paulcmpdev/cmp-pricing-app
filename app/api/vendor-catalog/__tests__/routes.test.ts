@@ -7,8 +7,11 @@ import { buildVendorCatalogTestDb } from "@/tests/fixtures/vendor-catalog/build-
 import { GET as searchGET } from "../search/route";
 import { GET as variantsGET } from "../styles/[styleId]/variants/route";
 import { POST as quoteItemPOST } from "@/app/api/quote/item/route";
+import { POST as quoteFlatFeePOST } from "@/app/api/quote/flat-fee/route";
+import { MANAGER_ONLY_FLAT_FEE_KEYS } from "@/lib/server/quote-types";
 
 const originalPath = process.env.VENDOR_CATALOG_DB_PATH;
+const originalDatabaseUrl = process.env.VENDOR_CATALOG_DATABASE_URL;
 const tempDirs: string[] = [];
 
 function useFixtureDb() {
@@ -17,6 +20,7 @@ function useFixtureDb() {
   const dbPath = join(dir, "vendor-catalog.sqlite");
   buildVendorCatalogTestDb(dbPath);
   process.env.VENDOR_CATALOG_DB_PATH = dbPath;
+  delete process.env.VENDOR_CATALOG_DATABASE_URL;
 }
 
 function request(url: string, init?: RequestInit) {
@@ -24,6 +28,11 @@ function request(url: string, init?: RequestInit) {
 }
 
 afterEach(() => {
+  if (originalDatabaseUrl == null) {
+    delete process.env.VENDOR_CATALOG_DATABASE_URL;
+  } else {
+    process.env.VENDOR_CATALOG_DATABASE_URL = originalDatabaseUrl;
+  }
   if (originalPath == null) {
     delete process.env.VENDOR_CATALOG_DB_PATH;
   } else {
@@ -48,6 +57,7 @@ describe("vendor catalog API", () => {
 
   it("returns unavailable state without a configured database", async () => {
     delete process.env.VENDOR_CATALOG_DB_PATH;
+    delete process.env.VENDOR_CATALOG_DATABASE_URL;
 
     const response = await searchGET(
       request("http://localhost/api/vendor-catalog/search?q=3001")
@@ -82,7 +92,25 @@ describe("vendor catalog API", () => {
   });
 });
 
+const env = process.env as Record<string, string | undefined>;
+
 describe("vendor catalog quote API path", () => {
+  const originalNodeEnv = env.NODE_ENV;
+  const originalManagerMode = env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+
+  afterEach(() => {
+    if (originalNodeEnv == null) {
+      delete env.NODE_ENV;
+    } else {
+      env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalManagerMode == null) {
+      delete env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+    } else {
+      env.CMP_ALLOW_LOCAL_MANAGER_MODE = originalManagerMode;
+    }
+  });
+
   it("requires sku, productCost, and catalogVariantId to be mutually exclusive", async () => {
     useFixtureDb();
 
@@ -128,6 +156,7 @@ describe("vendor catalog quote API path", () => {
 
   it("returns a graceful unavailable response for catalogVariantId without a database", async () => {
     delete process.env.VENDOR_CATALOG_DB_PATH;
+    delete process.env.VENDOR_CATALOG_DATABASE_URL;
 
     const response = await quoteItemPOST(
       request("http://localhost/api/quote/item", {
@@ -148,8 +177,10 @@ describe("vendor catalog quote API path", () => {
     });
   });
 
-  it("adds catalog provenance only to Manager quote responses", async () => {
+  it("adds catalog provenance to Manager response when local manager mode is enabled", async () => {
     useFixtureDb();
+    env.NODE_ENV = "test";
+    env.CMP_ALLOW_LOCAL_MANAGER_MODE = "true";
 
     const response = await quoteItemPOST(
       request("http://localhost/api/quote/item", {
@@ -175,5 +206,133 @@ describe("vendor catalog quote API path", () => {
       costBasis: "piecePrice",
       sourceSyncAt: "2026-06-29T00:00:00.000Z",
     });
+  });
+
+  it("production spoofing x-cmp-role: manager returns staff-safe JSON (no cost data)", async () => {
+    useFixtureDb();
+    env.NODE_ENV = "production";
+    delete env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+
+    const response = await quoteItemPOST(
+      request("http://localhost/api/quote/item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cmp-role": "manager" },
+        body: JSON.stringify({
+          catalogVariantId: "sanmar:K500-RED-L",
+          quantity: 12,
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.salesPrice).toBeGreaterThan(0);
+    // Must NOT include vendorCatalog provenance or any cost data
+    expect(json.vendorCatalog).toBeUndefined();
+    expect(JSON.stringify(json)).not.toMatch(/cost|basis|unitCost/i);
+  });
+
+  it("non-production without CMP_ALLOW_LOCAL_MANAGER_MODE still returns staff-safe JSON", async () => {
+    useFixtureDb();
+    env.NODE_ENV = "test";
+    delete env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+
+    const response = await quoteItemPOST(
+      request("http://localhost/api/quote/item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cmp-role": "manager" },
+        body: JSON.stringify({
+          catalogVariantId: "sanmar:K500-RED-L",
+          quantity: 12,
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.vendorCatalog).toBeUndefined();
+    expect(JSON.stringify(json)).not.toMatch(/cost|basis|unitCost/i);
+  });
+});
+
+const FLAT_FEE_BODY = {
+  service: "Additional Large Print",
+  orderQuantity: 12,
+};
+
+describe("flat-fee quote API manager gate", () => {
+  const originalNodeEnv = env.NODE_ENV;
+  const originalManagerMode = env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+
+  afterEach(() => {
+    if (originalNodeEnv == null) {
+      delete env.NODE_ENV;
+    } else {
+      env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalManagerMode == null) {
+      delete env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+    } else {
+      env.CMP_ALLOW_LOCAL_MANAGER_MODE = originalManagerMode;
+    }
+  });
+
+  it("production spoofing x-cmp-role: manager returns staff-safe output (no COGS/margin)", async () => {
+    env.NODE_ENV = "production";
+    delete env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+
+    const response = await quoteFlatFeePOST(
+      request("http://localhost/api/quote/flat-fee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cmp-role": "manager" },
+        body: JSON.stringify(FLAT_FEE_BODY),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.effectivePrice).toBeGreaterThan(0);
+    for (const key of MANAGER_ONLY_FLAT_FEE_KEYS) {
+      expect(json).not.toHaveProperty(key);
+    }
+  });
+
+  it("non-production with CMP_ALLOW_LOCAL_MANAGER_MODE=true returns manager output", async () => {
+    env.NODE_ENV = "test";
+    env.CMP_ALLOW_LOCAL_MANAGER_MODE = "true";
+
+    const response = await quoteFlatFeePOST(
+      request("http://localhost/api/quote/flat-fee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cmp-role": "manager" },
+        body: JSON.stringify(FLAT_FEE_BODY),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    for (const key of MANAGER_ONLY_FLAT_FEE_KEYS) {
+      expect(json).toHaveProperty(key);
+    }
+  });
+
+  it("non-production without CMP_ALLOW_LOCAL_MANAGER_MODE returns staff-safe output", async () => {
+    env.NODE_ENV = "test";
+    delete env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+
+    const response = await quoteFlatFeePOST(
+      request("http://localhost/api/quote/flat-fee", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cmp-role": "manager" },
+        body: JSON.stringify(FLAT_FEE_BODY),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.effectivePrice).toBeGreaterThan(0);
+    for (const key of MANAGER_ONLY_FLAT_FEE_KEYS) {
+      expect(json).not.toHaveProperty(key);
+    }
   });
 });

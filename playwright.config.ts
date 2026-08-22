@@ -22,5 +22,9 @@ export default defineConfig({
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 60000,
+    env: {
+      ...process.env,
+      CMP_ALLOW_LOCAL_MANAGER_MODE: "true",
+    },
   },
 });

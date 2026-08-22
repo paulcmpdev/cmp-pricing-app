@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (parsed.data.catalogVariantId && productCost == null) {
-    const status = getVendorCatalogStatus();
+    const status = await getVendorCatalogStatus();
     if (!status.available) {
       return NextResponse.json(
         {
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const resolved = resolveCatalogVariantCost(parsed.data.catalogVariantId);
+    const resolved = await resolveCatalogVariantCost(parsed.data.catalogVariantId);
     if (resolved == null) {
       return NextResponse.json(
         {
@@ -133,8 +133,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Manager mode exposes raw cost data. Without real auth, only allow it
+  // in non-production environments with explicit opt-in.
   const role = request.headers.get("x-cmp-role");
-  const isManager = role === "manager";
+  const localManagerAllowed =
+    process.env.NODE_ENV !== "production" &&
+    process.env.CMP_ALLOW_LOCAL_MANAGER_MODE === "true";
+  const isManager = role === "manager" && localManagerAllowed;
 
   try {
     const result = isManager

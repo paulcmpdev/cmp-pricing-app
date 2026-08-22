@@ -45,8 +45,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Manager mode exposes raw cost data. Without real auth, only allow it
+  // in non-production environments with explicit opt-in.
   const role = request.headers.get("x-cmp-role");
-  const isManager = role === "manager";
+  const localManagerAllowed =
+    process.env.NODE_ENV !== "production" &&
+    process.env.CMP_ALLOW_LOCAL_MANAGER_MODE === "true";
+  const isManager = role === "manager" && localManagerAllowed;
 
   let result;
   try {
