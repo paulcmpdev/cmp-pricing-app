@@ -19,6 +19,7 @@ import { abortableSleep } from './retry.mjs';
 const SS_ORIGIN = 'https://api.ssactivewear.com';
 const SS_API_BASE = '/v2';
 const MAX_STYLE_IDS_PER_BATCH = 50;
+const MAX_EMPTY_STYLE_RECHECKS = 100;
 
 /**
  * Validate a raw S&S style object strictly.
@@ -389,25 +390,26 @@ export function createSSSource({ accountNumber, apiKey, fetch: fetchFn, sleep, s
 
     const styles = await fetchStyles();
     const styleIds = [];
+    const stylesById = new Map();
+    const emittedStyleIds = new Set();
     const rawProductsPerStyle = new Map();
     const usableProductsPerStyle = new Map();
+    const excludedStyleIds = [];
 
     for (const style of styles) {
-      hash.update(JSON.stringify(style) + '\n');
-      styleCount++;
       styleIds.push(style.sourceStyleId);
+      stylesById.set(style.sourceStyleId, style);
       rawProductsPerStyle.set(style.sourceStyleId, 0);
       usableProductsPerStyle.set(style.sourceStyleId, 0);
-      await onStyle(style);
     }
 
     if (shouldContinue && !(await shouldContinue())) {
       throw createSourceError(ErrorCategory.CANCELED, 'S&S ingestion canceled after style fetch');
     }
 
-    for await (const event of fetchProductEvents(styleIds, { shouldContinue })) {
+    const processProductEvent = async (event) => {
       if (event.type === 'emptyBatch') {
-        continue;
+        return;
       }
 
       rawProductsPerStyle.set(event.sourceStyleId,
@@ -415,19 +417,55 @@ export function createSSSource({ accountNumber, apiKey, fetch: fetchFn, sleep, s
 
       if (!event.hasUsablePrice || !event.variant) {
         skippedCount++;
-        continue;
+        return;
       }
 
       const variant = event.variant;
       if (!isValidVariant(variant)) {
         skippedCount++;
-        continue;
+        return;
+      }
+      if (!emittedStyleIds.has(variant.sourceStyleId)) {
+        const style = stylesById.get(variant.sourceStyleId);
+        if (!style) {
+          throw createSourceError(
+            ErrorCategory.VALIDATION,
+            `S&S product references unknown style: ${variant.sourceStyleId}`,
+            { retryable: false }
+          );
+        }
+        hash.update(JSON.stringify(style) + '\n');
+        styleCount++;
+        emittedStyleIds.add(variant.sourceStyleId);
+        await onStyle(style);
       }
       hash.update(JSON.stringify(variant) + '\n');
       variantCount++;
       usableProductsPerStyle.set(variant.sourceStyleId,
         (usableProductsPerStyle.get(variant.sourceStyleId) || 0) + 1);
       await onVariant(variant);
+    };
+
+    for await (const event of fetchProductEvents(styleIds, { shouldContinue })) {
+      await processProductEvent(event);
+    }
+
+    const zeroProductStyleIds = styleIds.filter(
+      (styleId) => (rawProductsPerStyle.get(styleId) || 0) === 0
+    );
+    if (zeroProductStyleIds.length <= MAX_EMPTY_STYLE_RECHECKS) {
+      for (const styleId of zeroProductStyleIds) {
+        try {
+          for await (const event of fetchProductEvents([styleId], { shouldContinue })) {
+            await processProductEvent(event);
+          }
+        } catch (error) {
+          if (error?.statusCode !== 404) throw error;
+          rawProductsPerStyle.delete(styleId);
+          usableProductsPerStyle.delete(styleId);
+          excludedStyleIds.push(styleId);
+        }
+      }
     }
 
     const reasons = completenessReasons({ rawProductsPerStyle, usableProductsPerStyle });
@@ -442,6 +480,11 @@ export function createSSSource({ accountNumber, apiKey, fetch: fetchFn, sleep, s
       complete: reasons.length === 0,
       sourceErrors: reasons.length,
       reasons,
+      excludedStyleCount: excludedStyleIds.length,
+      excludedStyleSamples: excludedStyleIds.slice(0, 25).map((styleId) => ({
+        styleId,
+        confirmation: 'isolated_404',
+      })),
     };
   }
 

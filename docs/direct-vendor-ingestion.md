@@ -103,15 +103,23 @@ Mapping choices:
 - S&S completeness is fail-closed by default. Every validated raw product is
   counted for its requested style; products without a usable positive price
   increment `skippedCount` and are not emitted as variants. After all batches,
-  any requested style with zero raw products, zero usable priced variants, or
-  fewer usable variants than validated raw products marks the manifest incomplete
-  with redacted per-style counts. Empty product responses for requested batches
-  are incomplete. A 404 is still treated as an HTTP error unless explicit
-  discontinued-style semantics are added later.
+  any requested style with fewer usable variants than validated raw products
+  marks the manifest incomplete with redacted per-style counts. A style omitted
+  from a batch product response receives an isolated product request. Only an
+  isolated HTTP 404 confirms that the listed style is unavailable; it is then
+  excluded from staging and reported separately in the manifest. An isolated
+  empty 200 response remains incomplete. More than 100 zero-product candidates
+  are not rechecked and remain incomplete, limiting extra API load during broad
+  source failures.
+
+**Observed live on 2026-08-22:**
+- `/styles/` returned one array containing 5,664 styles for CMP's account.
+- Twelve listed styles were omitted from batched product results and returned
+  HTTP 404 when re-requested individually.
 
 **Unknowns:**
-- Exact pagination behavior for `/styles/` (single response vs paged?)
-- Response size for full catalog (potential for timeouts?)
+- Whether `/styles/` will introduce pagination at a larger future response size
+- Response size for future full catalogs (potential for timeouts?)
 - Whether `X-Rate-Limit-Remaining` is present on all responses or only 429s
 - Schema drift: field additions vs removals across API versions
 

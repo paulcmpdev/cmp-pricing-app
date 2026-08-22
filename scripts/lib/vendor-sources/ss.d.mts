@@ -39,6 +39,11 @@ export interface CompletenessManifest {
   complete?: boolean;
   sourceErrors?: number;
   reasons?: Array<Record<string, unknown>>;
+  excludedStyleCount?: number;
+  excludedStyleSamples?: Array<{
+    styleId: string;
+    confirmation: 'isolated_404';
+  }>;
 }
 
 export interface SSSource {
