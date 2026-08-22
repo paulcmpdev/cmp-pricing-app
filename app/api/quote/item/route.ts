@@ -3,6 +3,11 @@ import { z } from "zod";
 import { ItemPriceInputSchema } from "@/lib/pricing/schemas";
 import { quoteItemStaff, quoteItemManager } from "@/lib/server/quote-service";
 import { resolveProductCost } from "@/lib/server/catalog";
+import {
+  getVendorCatalogStatus,
+  resolveCatalogVariantCost,
+  type CatalogVariantCostResolution,
+} from "@/lib/server/vendor-catalog/repository";
 import { validateQuantity } from "@/lib/pricing/quantity";
 
 /**
@@ -12,13 +17,19 @@ import { validateQuantity } from "@/lib/pricing/quantity";
 const RequestBodySchema = z
   .object({
     sku: z.string().optional(),
+    catalogVariantId: z.string().optional(),
     productCost: z.number().min(0).optional(),
     quantity: z.number().int().min(1),
     productCostMultiplier: z.number().default(2),
     tierPriceLane: z.enum(["T1", "T2", "T3", "T4"]).default("T1"),
   })
-  .refine((d) => d.sku != null || d.productCost != null, {
-    message: "Either sku or productCost is required",
+  .refine((d) => {
+    const sourceCount = [d.sku, d.productCost, d.catalogVariantId].filter(
+      (value) => value != null
+    ).length;
+    return sourceCount === 1;
+  }, {
+    message: "Choose exactly one of sku, productCost, or catalogVariantId.",
   });
 
 export async function POST(request: NextRequest) {
@@ -35,13 +46,22 @@ export async function POST(request: NextRequest) {
   const parsed = RequestBodySchema.safeParse(body);
 
   if (!parsed.success) {
+    const flattened = parsed.error.flatten();
     return NextResponse.json(
-      { error: parsed.error.flatten().fieldErrors },
+      {
+        error: {
+          ...flattened.fieldErrors,
+          ...(flattened.formErrors.length > 0
+            ? { _form: flattened.formErrors }
+            : {}),
+        },
+      },
       { status: 400 }
     );
   }
 
   let productCost = parsed.data.productCost;
+  let vendorCatalogProvenance: CatalogVariantCostResolution | undefined;
 
   // Resolve SKU to cost server-side
   if (parsed.data.sku && productCost == null) {
@@ -53,6 +73,37 @@ export async function POST(request: NextRequest) {
       );
     }
     productCost = resolved;
+  }
+
+  if (parsed.data.catalogVariantId && productCost == null) {
+    const status = getVendorCatalogStatus();
+    if (!status.available) {
+      return NextResponse.json(
+        {
+          error: {
+            catalogVariantId: ["Vendor catalog is unavailable."],
+            _form: status.reason ? [status.reason] : undefined,
+          },
+        },
+        { status: 503 }
+      );
+    }
+
+    const resolved = resolveCatalogVariantCost(parsed.data.catalogVariantId);
+    if (resolved == null) {
+      return NextResponse.json(
+        {
+          error: {
+            catalogVariantId: [
+              `Unknown catalog variant: ${parsed.data.catalogVariantId}`,
+            ],
+          },
+        },
+        { status: 400 }
+      );
+    }
+    productCost = resolved.unitCost;
+    vendorCatalogProvenance = resolved;
   }
 
   const qtyValidation = validateQuantity(parsed.data.quantity);
@@ -92,6 +143,21 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ...result,
+      ...(isManager && vendorCatalogProvenance
+        ? {
+            vendorCatalog: {
+              vendor: vendorCatalogProvenance.vendor,
+              variantId: vendorCatalogProvenance.variantId,
+              styleId: vendorCatalogProvenance.styleId,
+              styleCode: vendorCatalogProvenance.styleCode,
+              color: vendorCatalogProvenance.color,
+              size: vendorCatalogProvenance.size,
+              unitCost: vendorCatalogProvenance.unitCost,
+              costBasis: vendorCatalogProvenance.costBasis,
+              sourceSyncAt: vendorCatalogProvenance.sourceSyncAt,
+            },
+          }
+        : {}),
       requiresManagerReview: false,
     });
   } catch (e) {

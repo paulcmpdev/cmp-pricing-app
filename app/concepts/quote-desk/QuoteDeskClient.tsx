@@ -7,8 +7,16 @@ import type {
   ManagerItemQuote,
   StaffFlatFeeQuote,
   ManagerFlatFeeQuote,
+  VendorCatalogPublicVariant,
+  VendorCatalogStyleSummary,
 } from "@/lib/client/types";
 import { formatCurrency, formatPercent } from "@/lib/client/format";
+import {
+  describeVariantAvailability,
+  isStaleVendorPricing,
+  shouldClearItemQuoteForVendorSelectionChange,
+  type ProductMode,
+} from "@/lib/client/vendor-catalog-helpers";
 
 // ---------------------------------------------------------------------------
 // Flat-fee services from the contract (names only, no cost data)
@@ -32,8 +40,8 @@ interface Props {
   catalog: CatalogEntry[];
 }
 
-type ProductMode = "catalog" | "manual";
 type Role = "staff" | "manager";
+type VendorFilter = "all" | "ss" | "sanmar";
 
 type ItemQuote = StaffItemQuote | ManagerItemQuote;
 type FlatFeeQuote = StaffFlatFeeQuote | ManagerFlatFeeQuote;
@@ -56,6 +64,10 @@ function isDecimalQuantity(value: string): boolean {
   return trimmed !== "" && /^\d+\.\d*$/.test(trimmed);
 }
 
+function uniqueValues(values: (string | null)[]): string[] {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -68,6 +80,18 @@ export default function QuoteDeskClient({ catalog }: Props) {
   const [productMode, setProductMode] = useState<ProductMode>("catalog");
   const [selectedSku, setSelectedSku] = useState("");
   const [manualCost, setManualCost] = useState("");
+  const [vendorFilter, setVendorFilter] = useState<VendorFilter>("all");
+  const [vendorSearch, setVendorSearch] = useState("");
+  const [vendorStyles, setVendorStyles] = useState<VendorCatalogStyleSummary[]>([]);
+  const [selectedVendorStyle, setSelectedVendorStyle] =
+    useState<VendorCatalogStyleSummary | null>(null);
+  const [vendorVariants, setVendorVariants] = useState<VendorCatalogPublicVariant[]>([]);
+  const [selectedVendorColor, setSelectedVendorColor] = useState("");
+  const [selectedCatalogVariantId, setSelectedCatalogVariantId] = useState("");
+  const [vendorSearchLoading, setVendorSearchLoading] = useState(false);
+  const [vendorVariantsLoading, setVendorVariantsLoading] = useState(false);
+  const [vendorError, setVendorError] = useState<string | null>(null);
+  const [vendorUnavailable, setVendorUnavailable] = useState<string | null>(null);
   const [quantity, setQuantity] = useState("84");
 
   const [selectedService, setSelectedService] = useState("");
@@ -90,6 +114,8 @@ export default function QuoteDeskClient({ catalog }: Props) {
   // Abort controllers for debounced requests
   const itemAbort = useRef<AbortController | null>(null);
   const flatFeeAbort = useRef<AbortController | null>(null);
+  const vendorSearchAbort = useRef<AbortController | null>(null);
+  const vendorVariantAbort = useRef<AbortController | null>(null);
 
   // --- Item price calculation ---
   const calculateItem = useCallback(async () => {
@@ -100,6 +126,9 @@ export default function QuoteDeskClient({ catalog }: Props) {
     if (productMode === "catalog") {
       if (!selectedSku) return;
       body = { sku: selectedSku, quantity: qty };
+    } else if (productMode === "vendor") {
+      if (!selectedCatalogVariantId) return;
+      body = { catalogVariantId: selectedCatalogVariantId, quantity: qty };
     } else {
       const cost = parseFloat(manualCost);
       if (isNaN(cost) || cost < 0) return;
@@ -143,7 +172,104 @@ export default function QuoteDeskClient({ catalog }: Props) {
     } finally {
       setItemLoading(false);
     }
-  }, [productMode, selectedSku, manualCost, quantity, role]);
+  }, [productMode, selectedSku, selectedCatalogVariantId, manualCost, quantity, role]);
+
+  useEffect(() => {
+    if (productMode !== "vendor") return;
+    const term = vendorSearch.trim();
+    setSelectedVendorStyle(null);
+    setVendorVariants([]);
+    setSelectedVendorColor("");
+    setSelectedCatalogVariantId("");
+    if (term.length === 0) {
+      setVendorStyles([]);
+      setVendorError(null);
+      setVendorUnavailable(null);
+      return;
+    }
+    if (term.length < 2) {
+      setVendorStyles([]);
+      return;
+    }
+
+    let controller: AbortController | null = null;
+    const timer = setTimeout(async () => {
+      vendorSearchAbort.current?.abort();
+      const requestController = new AbortController();
+      controller = requestController;
+      vendorSearchAbort.current = requestController;
+      setVendorSearchLoading(true);
+      setVendorError(null);
+      setVendorUnavailable(null);
+      try {
+        const res = await fetch(
+          `/api/vendor-catalog/search?q=${encodeURIComponent(term)}&vendor=${vendorFilter}`,
+          { signal: requestController.signal }
+        );
+        const data = await res.json();
+        if (res.status === 503) {
+          setVendorUnavailable(data.reason ?? "Vendor catalog is unavailable.");
+          setVendorStyles([]);
+          return;
+        }
+        if (!res.ok) {
+          throw new Error(data.error ? JSON.stringify(data.error) : `HTTP ${res.status}`);
+        }
+        setVendorStyles(data.results ?? []);
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") {
+          setVendorError((e as Error).message);
+        }
+      } finally {
+        if (vendorSearchAbort.current === requestController) {
+          setVendorSearchLoading(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      controller?.abort();
+    };
+  }, [productMode, vendorSearch, vendorFilter]);
+
+  useEffect(() => {
+    if (!selectedVendorStyle) return;
+    vendorVariantAbort.current?.abort();
+    const controller = new AbortController();
+    vendorVariantAbort.current = controller;
+    setVendorVariantsLoading(true);
+    setVendorError(null);
+    setSelectedVendorColor("");
+    setSelectedCatalogVariantId("");
+
+    fetch(`/api/vendor-catalog/styles/${encodeURIComponent(selectedVendorStyle.id)}/variants`, {
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (res.status === 503) {
+          setVendorUnavailable(data.reason ?? "Vendor catalog is unavailable.");
+          return;
+        }
+        if (!res.ok) {
+          throw new Error(data.error ? JSON.stringify(data.error) : `HTTP ${res.status}`);
+        }
+        setVendorVariants(data.variants ?? []);
+      })
+      .catch((e) => {
+        if ((e as Error).name !== "AbortError") {
+          setVendorError((e as Error).message);
+        }
+      })
+      .finally(() => {
+        if (vendorVariantAbort.current === controller) {
+          setVendorVariantsLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [selectedVendorStyle]);
 
   // --- Flat-fee calculation ---
   const calculateFlatFee = useCallback(async () => {
@@ -208,6 +334,42 @@ export default function QuoteDeskClient({ catalog }: Props) {
 
   // --- Derived ---
   const selectedProduct = catalog.find((p) => p.sku === selectedSku);
+  const vendorColors = uniqueValues(vendorVariants.map((variant) => variant.color));
+  const vendorSizes = vendorVariants.filter(
+    (variant) => variant.color === selectedVendorColor
+  );
+  const selectedVendorVariant = vendorVariants.find(
+    (variant) => variant.id === selectedCatalogVariantId
+  );
+  const selectedVendorAvailability = selectedVendorVariant
+    ? describeVariantAvailability(selectedVendorVariant)
+    : null;
+
+  const changeRole = (nextRole: Role) => {
+    itemAbort.current?.abort();
+    flatFeeAbort.current?.abort();
+    setItemQuote(null);
+    setFlatFeeQuote(null);
+    setItemError(null);
+    setFlatFeeError(null);
+    setManagerReviewRequired(false);
+    setRole(nextRole);
+  };
+
+  const changeProductMode = (nextMode: ProductMode) => {
+    if (shouldClearItemQuoteForVendorSelectionChange(productMode, nextMode)) {
+      setItemQuote(null);
+      setItemError(null);
+      setManagerReviewRequired(false);
+    }
+    setProductMode(nextMode);
+  };
+
+  const clearVendorItemQuote = () => {
+    setItemQuote(null);
+    setItemError(null);
+    setManagerReviewRequired(false);
+  };
 
   // Order total: item total + flat-fee add-on total
   const orderTotal =
@@ -221,7 +383,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
           View mode:
         </span>
         <button
-          onClick={() => setRole(role === "staff" ? "manager" : "staff")}
+          onClick={() => changeRole(role === "staff" ? "manager" : "staff")}
           className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus-visible:outline-cmp-cyan ${
             role === "manager" ? "bg-cmp-cyan" : "bg-cmp-gray-light"
           }`}
@@ -261,7 +423,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
             {/* Mode toggle */}
             <div className="flex gap-2 mb-3" role="group" aria-label="Product input mode">
               <button
-                onClick={() => setProductMode("catalog")}
+                onClick={() => changeProductMode("catalog")}
                 aria-pressed={productMode === "catalog"}
                 className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
                   productMode === "catalog"
@@ -269,10 +431,21 @@ export default function QuoteDeskClient({ catalog }: Props) {
                     : "bg-cmp-surface text-cmp-gray hover:text-cmp-charcoal"
                 }`}
               >
-                Catalog
+                CMP Catalog
               </button>
               <button
-                onClick={() => setProductMode("manual")}
+                onClick={() => changeProductMode("vendor")}
+                aria-pressed={productMode === "vendor"}
+                className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
+                  productMode === "vendor"
+                    ? "bg-cmp-cyan text-white"
+                    : "bg-cmp-surface text-cmp-gray hover:text-cmp-charcoal"
+                }`}
+              >
+                Vendor Catalog
+              </button>
+              <button
+                onClick={() => changeProductMode("manual")}
                 aria-pressed={productMode === "manual"}
                 className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
                   productMode === "manual"
@@ -312,6 +485,198 @@ export default function QuoteDeskClient({ catalog }: Props) {
                   <p className="mt-1.5 text-xs text-cmp-gray">
                     {selectedProduct.name}
                   </p>
+                )}
+              </div>
+            ) : productMode === "vendor" ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-3">
+                  <div>
+                    <label htmlFor="vendor-filter" className="cmp-label">
+                      Vendor
+                    </label>
+                    <select
+                      id="vendor-filter"
+                      className="cmp-select"
+                      value={vendorFilter}
+                      onChange={(e) => {
+                        clearVendorItemQuote();
+                        setVendorFilter(e.target.value as VendorFilter);
+                      }}
+                    >
+                      <option value="all">All</option>
+                      <option value="ss">S&amp;S</option>
+                      <option value="sanmar">SanMar</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="vendor-search" className="cmp-label">
+                      Search vendor catalog
+                    </label>
+                    <input
+                      id="vendor-search"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-controls="vendor-search-results"
+                      aria-expanded={vendorStyles.length > 0 && !selectedVendorStyle}
+                      className="cmp-input"
+                      value={vendorSearch}
+                      onChange={(e) => {
+                        clearVendorItemQuote();
+                        setVendorSearch(e.target.value);
+                      }}
+                      placeholder="Style, brand, or product"
+                    />
+                  </div>
+                </div>
+
+                {vendorUnavailable && (
+                  <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800" role="status">
+                    Vendor catalog unavailable. {vendorUnavailable}
+                  </div>
+                )}
+                {vendorError && (
+                  <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700" role="alert">
+                    {vendorError}
+                  </div>
+                )}
+                {vendorSearchLoading && (
+                  <div className="flex items-center gap-2 text-sm text-cmp-gray">
+                    <LoadingSpinner />
+                    Searching...
+                  </div>
+                )}
+                {!vendorSearchLoading && vendorSearch.trim().length >= 2 && vendorStyles.length === 0 && !vendorUnavailable && !vendorError && (
+                  <p className="text-sm text-cmp-gray">No vendor styles found.</p>
+                )}
+                {vendorStyles.length > 0 && !selectedVendorStyle && (
+                  <div
+                    id="vendor-search-results"
+                    role="listbox"
+                    aria-label="Vendor catalog search results"
+                    className="max-h-52 overflow-auto rounded-md border border-cmp-gray-light divide-y divide-cmp-gray-light/60"
+                  >
+                    {vendorStyles.map((style) => (
+                      <button
+                        key={style.id}
+                        type="button"
+                        role="option"
+                        aria-selected={false}
+                        className="w-full px-3 py-2 text-left hover:bg-cmp-surface focus-visible:outline-cmp-cyan"
+                        onClick={() => {
+                          clearVendorItemQuote();
+                          setSelectedVendorStyle(style);
+                        }}
+                      >
+                        <span className="block text-sm font-semibold text-cmp-charcoal">
+                          {style.styleCode} · {style.name}
+                        </span>
+                        <span className="block text-xs text-cmp-gray">
+                          {style.vendor === "ss" ? "S&S" : "SanMar"} · {style.brand} · {style.activeVariantCount} variants
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {selectedVendorStyle && (
+                  <div className="space-y-3 rounded-md border border-cmp-gray-light p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-cmp-charcoal">
+                          {selectedVendorStyle.styleCode} · {selectedVendorStyle.name}
+                        </p>
+                        <p className="text-xs text-cmp-gray">
+                          {selectedVendorStyle.vendor === "ss" ? "S&S" : "SanMar"} · {selectedVendorStyle.brand}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs text-cmp-cyan font-medium"
+                        aria-label={`Change vendor style from ${selectedVendorStyle.styleCode}`}
+                        onClick={() => {
+                          clearVendorItemQuote();
+                          setSelectedVendorStyle(null);
+                        }}
+                      >
+                        Change
+                      </button>
+                    </div>
+
+                    {vendorVariantsLoading && (
+                      <div className="flex items-center gap-2 text-sm text-cmp-gray">
+                        <LoadingSpinner />
+                        Loading variants...
+                      </div>
+                    )}
+
+                    {vendorVariants.length > 0 && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label htmlFor="vendor-color" className="cmp-label">
+                            Color
+                          </label>
+                          <select
+                            id="vendor-color"
+                            className="cmp-select"
+                            value={selectedVendorColor}
+                            onChange={(e) => {
+                              clearVendorItemQuote();
+                              setSelectedVendorColor(e.target.value);
+                              setSelectedCatalogVariantId("");
+                            }}
+                          >
+                            <option value="">Select color...</option>
+                            {vendorColors.map((color) => (
+                              <option key={color} value={color}>{color}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="vendor-size" className="cmp-label">
+                            Size
+                          </label>
+                          <select
+                            id="vendor-size"
+                            className="cmp-select"
+                            value={selectedCatalogVariantId}
+                            onChange={(e) => {
+                              clearVendorItemQuote();
+                              setSelectedCatalogVariantId(e.target.value);
+                            }}
+                            disabled={!selectedVendorColor}
+                          >
+                            <option value="">Select size...</option>
+                            {vendorSizes.map((variant) => (
+                              <option key={variant.id} value={variant.id}>
+                                {describeVariantAvailability(variant).optionLabel}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedVendorVariant && (
+                      <div className="text-xs text-cmp-gray space-y-1">
+                        <p>
+                          Inventory: {selectedVendorVariant.inventoryQty == null ? "Unavailable" : selectedVendorVariant.inventoryQty}
+                        </p>
+                        <p>
+                          Source: {selectedVendorVariant.sourceSyncAt ? new Date(selectedVendorVariant.sourceSyncAt).toLocaleDateString() : "Unknown"}
+                        </p>
+                        {isStaleVendorPricing(selectedVendorVariant.sourceSyncAt) && (
+                          <p className="text-amber-700 font-medium" role="status">
+                            Snapshot is stale. Verify vendor data before ordering.
+                          </p>
+                        )}
+                        {selectedVendorAvailability?.selectedWarning && (
+                          <p className="text-amber-700 font-medium" role="alert">
+                            {selectedVendorAvailability.selectedWarning}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             ) : (
@@ -598,6 +963,30 @@ export default function QuoteDeskClient({ catalog }: Props) {
                       label="Contribution Margin"
                       value={formatPercent(itemQuote.contributionMarginAfterCommission)}
                     />
+                    {itemQuote.vendorCatalog && (
+                      <>
+                        <Row
+                          label="Vendor Variant"
+                          value={`${itemQuote.vendorCatalog.vendor.toUpperCase()} ${itemQuote.vendorCatalog.styleCode}`}
+                        />
+                        <Row
+                          label="Variant Cost"
+                          value={formatCurrency(itemQuote.vendorCatalog.unitCost)}
+                        />
+                        <Row
+                          label="Cost Basis"
+                          value={itemQuote.vendorCatalog.costBasis}
+                        />
+                        <Row
+                          label="Source Date"
+                          value={
+                            itemQuote.vendorCatalog.sourceSyncAt
+                              ? new Date(itemQuote.vendorCatalog.sourceSyncAt).toLocaleDateString()
+                              : "Unknown"
+                          }
+                        />
+                      </>
+                    )}
                   </div>
                 )}
 

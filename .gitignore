@@ -11,3 +11,6 @@ test-results/
 playwright-report/
 qa-screenshots/
 .vercel/
+data/*.sqlite
+data/*.sqlite-*
+*.db

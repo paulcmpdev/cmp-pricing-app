@@ -28,6 +28,44 @@ export interface ManagerItemQuote extends StaffItemQuote {
   contributionMarginAfterCommission: number;
   productionCogsOrderTotal: number;
   netContributionOrderTotal: number;
+  vendorCatalog?: {
+    vendor: "ss" | "sanmar";
+    variantId: string;
+    styleId: string;
+    styleCode: string;
+    color: string | null;
+    size: string | null;
+    unitCost: number;
+    costBasis: string;
+    sourceSyncAt: string | null;
+  };
+}
+
+export interface VendorCatalogStyleSummary {
+  id: string;
+  vendor: "ss" | "sanmar";
+  styleCode: string;
+  brand: string | null;
+  name: string | null;
+  category: string | null;
+  description: string | null;
+  imageUrl: string | null;
+  activeVariantCount: number;
+  sourceSyncAt: string | null;
+}
+
+export interface VendorCatalogPublicVariant {
+  id: string;
+  styleId: string;
+  vendor: "ss" | "sanmar";
+  styleCode: string;
+  color: string | null;
+  size: string | null;
+  sizeOrder: number | null;
+  inventoryQty: number | null;
+  imageUrl: string | null;
+  discontinued: boolean;
+  sourceSyncAt: string | null;
 }
 
 export interface StaffFlatFeeQuote {
