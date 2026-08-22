@@ -19,6 +19,10 @@ run `npm rebuild` after switching Node versions).
 | `VENDO_POSTGRES_URL` | Source Vendo PostgreSQL for live imports (read-only) |
 | `VENDOR_CATALOG_BATCH_SIZE` | Batch size for imports (default: 500, max: 1000) |
 | `VENDOR_CATALOG_TEST_DATABASE_URL` | PostgreSQL URL for integration tests (optional, test-only) |
+| `CMP_SS_ACCOUNT_NUMBER` | S&S Basic auth account number (worker/CLI only, never in web runtime) |
+| `CMP_SS_API_KEY` | S&S Basic auth API key (worker/CLI only, never in web runtime) |
+| `CMP_SANMAR_EPDD_PATH` | Path to local SanMar EPDD CSV file (worker/CLI only) |
+| `CMP_SANMAR_DIP_PATH` | Path to local SanMar DIP pipe-delimited file (worker/CLI only) |
 | `CMP_ALLOW_LOCAL_MANAGER_MODE` | Set to `true` in non-production to enable manager cost visibility via `x-cmp-role: manager` header |
 
 ## Pool Configuration
@@ -53,10 +57,30 @@ metadata but passes all CMP integrity checks. It is marked as an
 `approved_recovery_snapshot` in the manifest — the original `source_status` is
 preserved in import metadata for audit trail.
 
-### Import from Vendo PostgreSQL (live, incremental)
+### Direct vendor sync (new, replaces Vendo long-term)
 
-Stream from Vendo source PostgreSQL into CMP target. **Requires an existing
-active CMP version** (use seed first). Explicit per-vendor only — no
+Standalone CLI/worker that ingests directly from vendor APIs/files into CMP
+PostgreSQL. **Requires an existing active CMP version** (use seed first).
+
+```bash
+# S&S (requires credentials in env)
+CMP_SS_ACCOUNT_NUMBER=xxx CMP_SS_API_KEY=yyy \
+  npm run catalog:sync -- --vendor ss --target-url "$VENDOR_CATALOG_DATABASE_URL"
+
+# SanMar (local pre-delivered files only — secure transport TBD)
+npm run catalog:sync -- --vendor sanmar \
+  --epdd-path data/epdd.csv --dip-path data/sanmar_dip.txt \
+  --target-url "$VENDOR_CATALOG_DATABASE_URL"
+```
+
+See `docs/direct-vendor-ingestion.md` for architecture, migration stages, and
+unresolved items (SanMar secure file delivery).
+
+### Import from Vendo PostgreSQL (legacy, retained for rollback)
+
+**Legacy rollback tooling** — retained during migration to direct vendor
+ingestion. Stream from Vendo source PostgreSQL into CMP target. **Requires an
+existing active CMP version** (use seed first). Explicit per-vendor only — no
 `--vendor all`.
 
 ```bash
@@ -166,3 +190,12 @@ After seeding from SQLite or importing from Vendo, verify:
 - **Auth for manager mode**: The `x-cmp-role` header is unauthenticated. Real
   auth (JWT/session) should replace the header-based manager mode. Until then,
   production always returns staff-safe responses.
+- **SanMar secure file delivery**: SanMar docs identify SFTP/SSH at
+  `ftp.sanmar.com:2200` as the secure transport and state FTPS/TLS is
+  unsupported. Phase 1 of direct ingestion parses local pre-delivered files
+  only; SFTP/SSH transport is deferred, not impossible.
+- **S&S API pagination**: Full `/styles/` response behavior at scale (single
+  response vs paged) needs verification with real credentials.
+- **Stale job lease cleanup**: New ingestion attempts reclaim expired
+  queued/running/validating jobs for the same vendor under advisory lock, reject
+  their non-active import, and delete staged rows before acquiring a fresh job.

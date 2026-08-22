@@ -1,30 +1,30 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
+import { randomUUID } from "node:crypto";
 import { VENDOR_CATALOG_POSTGRES_SCHEMA_SQL } from "../postgres-schema.mjs";
 import { createPostgresVendorCatalogRepository } from "../postgres-repository";
 
 const TEST_PG_URL = process.env.VENDOR_CATALOG_TEST_DATABASE_URL;
 const runIntegration = TEST_PG_URL != null && TEST_PG_URL.length > 0;
 
+const SCHEMA_NAME = `test_pg_integration_${process.pid}_${randomUUID().replaceAll("-", "_")}`;
+
 describe.skipIf(!runIntegration)(
   "PostgreSQL vendor catalog integration",
   () => {
     let pool: pg.Pool;
+    let adminPool: pg.Pool;
     const ssImportId = "11111111-1111-1111-1111-111111111111";
     const sanmarImportId = "22222222-2222-2222-2222-222222222222";
 
-    async function dropAll() {
-      await pool.query("DROP VIEW IF EXISTS active_catalog_variants CASCADE");
-      await pool.query("DROP VIEW IF EXISTS active_catalog_styles CASCADE");
-      await pool.query("DROP TABLE IF EXISTS active_catalog_versions CASCADE");
-      await pool.query("DROP TABLE IF EXISTS catalog_variants CASCADE");
-      await pool.query("DROP TABLE IF EXISTS catalog_styles CASCADE");
-      await pool.query("DROP TABLE IF EXISTS catalog_imports CASCADE");
-    }
-
     beforeAll(async () => {
-      pool = new pg.Pool({ connectionString: TEST_PG_URL, max: 2 });
-      await dropAll();
+      adminPool = new pg.Pool({ connectionString: TEST_PG_URL, max: 1 });
+      await adminPool.query(`CREATE SCHEMA ${SCHEMA_NAME}`);
+      pool = new pg.Pool({
+        connectionString: TEST_PG_URL,
+        max: 2,
+        options: `-c search_path=${SCHEMA_NAME}`,
+      });
       await pool.query(VENDOR_CATALOG_POSTGRES_SCHEMA_SQL);
 
       // Seed both vendors as active
@@ -78,14 +78,17 @@ describe.skipIf(!runIntegration)(
 
     afterAll(async () => {
       if (pool) {
-        await dropAll();
         await pool.end();
+      }
+      if (adminPool) {
+        await adminPool.query(`DROP SCHEMA IF EXISTS ${SCHEMA_NAME} CASCADE`);
+        await adminPool.end();
       }
     });
 
     function repo() {
       return createPostgresVendorCatalogRepository({
-        async query(text, values) {
+        async query(text: string, values?: any[]) {
           const result = await pool.query(text, values);
           return { rows: result.rows };
         },
@@ -97,7 +100,7 @@ describe.skipIf(!runIntegration)(
     it("creates schema with all expected tables and views", async () => {
       const result = await pool.query(
         `SELECT table_name FROM information_schema.tables
-         WHERE table_schema = 'public'
+         WHERE table_schema = '${SCHEMA_NAME}'
          AND table_name IN ('catalog_imports', 'catalog_styles', 'catalog_variants', 'active_catalog_versions')
          ORDER BY table_name`
       );
@@ -110,7 +113,7 @@ describe.skipIf(!runIntegration)(
 
       const views = await pool.query(
         `SELECT table_name FROM information_schema.views
-         WHERE table_schema = 'public'
+         WHERE table_schema = '${SCHEMA_NAME}'
          AND table_name IN ('active_catalog_styles', 'active_catalog_variants')
          ORDER BY table_name`
       );
@@ -122,7 +125,7 @@ describe.skipIf(!runIntegration)(
 
     it("active views filter by catalog_imports status=active", async () => {
       const viewDef = await pool.query(
-        `SELECT pg_get_viewdef('active_catalog_styles'::regclass, true) AS def`
+        `SELECT pg_get_viewdef('${SCHEMA_NAME}.active_catalog_styles'::regclass, true) AS def`
       );
       expect(String((viewDef.rows[0] as { def: string }).def)).toContain("i.status = 'active'");
     });
@@ -140,7 +143,6 @@ describe.skipIf(!runIntegration)(
     });
 
     it("reports unavailable when one vendor is missing", async () => {
-      // Temporarily remove sanmar active version
       await pool.query("DELETE FROM active_catalog_versions WHERE vendor = 'sanmar'");
 
       const result = await pool.query(
@@ -151,7 +153,6 @@ describe.skipIf(!runIntegration)(
       expect(vendors.has("ss")).toBe(true);
       expect(vendors.has("sanmar")).toBe(false);
 
-      // Restore
       await pool.query(
         `INSERT INTO active_catalog_versions (vendor, import_id) VALUES ('sanmar', $1)`,
         [sanmarImportId]
@@ -159,7 +160,6 @@ describe.skipIf(!runIntegration)(
     });
 
     it("reports unavailable when import status is not active", async () => {
-      // Set sanmar import to superseded
       await pool.query(
         `UPDATE catalog_imports SET status = 'superseded' WHERE id = $1`,
         [sanmarImportId]
@@ -172,13 +172,11 @@ describe.skipIf(!runIntegration)(
       const vendors = new Set(result.rows.map((r: { vendor: string }) => r.vendor));
       expect(vendors.has("sanmar")).toBe(false);
 
-      // Active view should not return sanmar rows
       const sanmarStyles = await pool.query(
         `SELECT count(*)::int AS cnt FROM active_catalog_styles WHERE vendor = 'sanmar'`
       );
       expect(Number((sanmarStyles.rows[0] as { cnt: number }).cnt)).toBe(0);
 
-      // Restore
       await pool.query(
         `UPDATE catalog_imports SET status = 'active' WHERE id = $1`,
         [sanmarImportId]
@@ -256,7 +254,6 @@ describe.skipIf(!runIntegration)(
         [badImportId]
       );
 
-      // Try to activate a 'building' import (should fail — status must be 'validating')
       const client = await pool.connect();
       let rollbackOccurred = false;
       try {
@@ -279,13 +276,11 @@ describe.skipIf(!runIntegration)(
       }
       expect(rollbackOccurred).toBe(true);
 
-      // Original SS import should still be active
       const activeResult = await pool.query(
         `SELECT import_id FROM active_catalog_versions WHERE vendor = 'ss'`
       );
       expect(String((activeResult.rows[0] as { import_id: string }).import_id)).toBe(ssImportId);
 
-      // Cleanup
       await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [badImportId]);
     });
 
@@ -309,7 +304,6 @@ describe.skipIf(!runIntegration)(
         [rejectedImportId]
       );
 
-      // Reject: update status and delete staged rows
       await pool.query(
         `UPDATE catalog_imports SET status = 'rejected', rejection_reason = 'test rejection'
          WHERE id = $1`,
@@ -318,7 +312,6 @@ describe.skipIf(!runIntegration)(
       await pool.query(`DELETE FROM catalog_styles WHERE import_id = $1`, [rejectedImportId]);
       await pool.query(`DELETE FROM catalog_variants WHERE import_id = $1`, [rejectedImportId]);
 
-      // Metadata row should still exist
       const metaResult = await pool.query(
         `SELECT status, rejection_reason FROM catalog_imports WHERE id = $1`,
         [rejectedImportId]
@@ -327,7 +320,6 @@ describe.skipIf(!runIntegration)(
       expect((metaResult.rows[0] as { status: string }).status).toBe("rejected");
       expect((metaResult.rows[0] as { rejection_reason: string }).rejection_reason).toBe("test rejection");
 
-      // Staged rows should be gone
       const styleResult = await pool.query(
         `SELECT count(*)::int AS cnt FROM catalog_styles WHERE import_id = $1`,
         [rejectedImportId]
@@ -340,7 +332,6 @@ describe.skipIf(!runIntegration)(
       );
       expect(Number((variantResult.rows[0] as { cnt: number }).cnt)).toBe(0);
 
-      // Cleanup
       await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [rejectedImportId]);
     });
 
@@ -351,14 +342,10 @@ describe.skipIf(!runIntegration)(
         `SELECT * FROM active_catalog_variants WHERE id = 'ss:3001-BLK-M' LIMIT 1`
       );
       const row = result.rows[0] as Record<string, unknown>;
-      // The view returns all columns including resolved_cost, but the repository
-      // query (which is what public endpoints use) only SELECTs public columns.
-      // Verify the repository does not leak cost data:
       const variants = await repo().getStyleVariants("ss:3001");
       for (const v of variants) {
         expect(Object.keys(v).join(" ")).not.toMatch(/cost|price|cogs/i);
       }
-      // The raw view does have resolved_cost (this is expected for server-side use)
       expect(row).toHaveProperty("resolved_cost");
     });
 
@@ -406,7 +393,6 @@ describe.skipIf(!runIntegration)(
         [cascadeImportId]
       );
 
-      // Delete styles — variants should cascade
       await pool.query(`DELETE FROM catalog_styles WHERE import_id = $1`, [cascadeImportId]);
       const variantResult = await pool.query(
         `SELECT count(*)::int AS cnt FROM catalog_variants WHERE import_id = $1`,
@@ -414,7 +400,6 @@ describe.skipIf(!runIntegration)(
       );
       expect(Number((variantResult.rows[0] as { cnt: number }).cnt)).toBe(0);
 
-      // Cleanup
       await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [cascadeImportId]);
     });
   }
