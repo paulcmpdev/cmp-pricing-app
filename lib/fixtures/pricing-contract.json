@@ -1,0 +1,890 @@
+{
+  "schemaVersion": "1.0.0",
+  "workbook": {
+    "spreadsheetId": "1dtN83KQ2ERy6nozPJe65InaRvq0ydCdvUllTH9DtW9c",
+    "title": "CMP Screen Print Labor & Internal COGS Builder",
+    "liveUrl": "https://docs.google.com/spreadsheets/d/1dtN83KQ2ERy6nozPJe65InaRvq0ydCdvUllTH9DtW9c/edit",
+    "access": "Private. Cowork requires Paul Google Drive connector; bundled XLSX is guaranteed fallback.",
+    "capturedDriveVersion": 739
+  },
+  "scope": {
+    "mvp": "Internal forward item price calculator for product cost plus DTF decoration.",
+    "sourceOfTruth": "Verified workbook and parity scenarios.",
+    "staffVsManager": "Staff sees quoting inputs/results. Manager-only COGS, wages, geometry, margins, and overrides remain separated.",
+    "mvpBaseDecoration": {
+      "method": "DTF",
+      "productionMode": "Average",
+      "transferSizeIn": {
+        "width": 10,
+        "height": 10
+      },
+      "includedPrintLocations": 1,
+      "priceLane": "T1",
+      "priceBasis": "Tier Matrix",
+      "note": "These are fixed P0 inputs. Additional locations use the flat-fee service flow. Adjustable production mode, base geometry, and included-location count are P1."
+    }
+  },
+  "pricingPolicy": {
+    "productSellFormula": "productCost * productCostMultiplier",
+    "productCostMultiplier": 2.0,
+    "decorationTargetGrossMargin": 0.4,
+    "decorationSellFormula": "decorationCogs / (1 - decorationTargetGrossMargin)",
+    "commissionReserveRate": 0.08,
+    "commissionTreatment": "Track separately. Do not embed in product multiplier or decoration margin.",
+    "roundingIncrement": 0.05,
+    "smallOrderRule": "Flat-fee quotes only: quantities 1-11 bill at 12. Item-price tier matrix supports quantities beginning at 1.",
+    "additionalLocationMarginLanes": {
+      "T1": 0.58,
+      "T2": 0.52,
+      "T3": 0.44,
+      "T4": 0.35
+    },
+    "flatFeeMinimumBillableQuantity": 12,
+    "itemPriceMinimumQuantity": 1
+  },
+  "labor": {
+    "operatorWagePerHour": 15.0,
+    "designerWagePerHour": 30.53,
+    "productionPrepAdditionalMinutes": 0,
+    "salesCoordinatorAdditionalMinutes": 0,
+    "operatorTimeBasis": "Editable minutes per shirt by service.",
+    "designerTimeBasis": "Editable minutes per order by service.",
+    "operatorOperatingCostNote": "Existing placement operating cost includes direct operator labor plus facility overhead."
+  },
+  "flatFeeGeometries": [
+    {
+      "key": "FLAT_LARGE",
+      "name": "Large Print",
+      "category": "Flat Fee",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "areaSqIn": 60.9,
+      "active": true,
+      "notes": "Approved Large Print size; independent from BUNDLE_TOP."
+    },
+    {
+      "key": "FLAT_SLEEVE",
+      "name": "Sleeve Print",
+      "category": "Flat Fee",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "areaSqIn": 12.25,
+      "active": true,
+      "notes": "Independent editable sleeve geometry."
+    },
+    {
+      "key": "FLAT_BOTTOM_CHEST",
+      "name": "Bottom / Upper Chest",
+      "category": "Flat Fee",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "areaSqIn": 12.25,
+      "active": true,
+      "notes": "Independent editable bottom/chest geometry."
+    },
+    {
+      "key": "FLAT_VERTICAL",
+      "name": "Vertical Print",
+      "category": "Flat Fee",
+      "widthIn": 4,
+      "heightIn": 10.5,
+      "areaSqIn": 42,
+      "active": true,
+      "notes": "Approved consolidated vertical geometry."
+    },
+    {
+      "key": "FLAT_NAME",
+      "name": "Name Personalization",
+      "category": "Flat Fee",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "areaSqIn": 60.9,
+      "active": true,
+      "notes": "Initial size; independently editable."
+    },
+    {
+      "key": "FLAT_NUMBER",
+      "name": "Number Personalization",
+      "category": "Flat Fee",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "areaSqIn": 60.9,
+      "active": true,
+      "notes": "Initial size; independently editable from Name."
+    },
+    {
+      "key": "FLAT_BASE",
+      "name": "Included Base Print",
+      "category": "Flat Fee Base",
+      "widthIn": 10,
+      "heightIn": 10,
+      "areaSqIn": 100,
+      "active": true,
+      "notes": "Included base decoration used for pooled incremental-cost calculations; independent from FLAT_LARGE and BUNDLE_TOP."
+    }
+  ],
+  "flatFeeServices": [
+    {
+      "service": "Additional Large Print",
+      "engineCogs": 3.118004848783695,
+      "enginePrice": 8,
+      "policyFloor": 0,
+      "manualOverride": null,
+      "effectivePrice": 8,
+      "grossMargin": 0.6102493939020381,
+      "status": "Engine price",
+      "operatorOperatingCost": 0.19397707100591716,
+      "extraOperatorMinutesPerShirt": 0,
+      "extraOperatorLabor": 0,
+      "extraDesignerMinutesPerOrder": 10,
+      "extraDesignerLabor": 0.4240277777777777
+    },
+    {
+      "service": "Sleeve Print",
+      "engineCogs": 1.6023624876725835,
+      "enginePrice": 4,
+      "policyFloor": 5,
+      "manualOverride": null,
+      "effectivePrice": 5,
+      "grossMargin": 0.6795275024654833,
+      "status": "Policy floor",
+      "operatorOperatingCost": 0.19397707100591716,
+      "extraOperatorMinutesPerShirt": 0,
+      "extraOperatorLabor": 0,
+      "extraDesignerMinutesPerOrder": 5,
+      "extraDesignerLabor": 0.15901041666666665
+    },
+    {
+      "service": "Bottom / Upper Chest",
+      "engineCogs": 1.6023624876725835,
+      "enginePrice": 4,
+      "policyFloor": 0,
+      "manualOverride": null,
+      "effectivePrice": 4,
+      "grossMargin": 0.5994093780818541,
+      "status": "Engine price",
+      "operatorOperatingCost": 0.19397707100591716,
+      "extraOperatorMinutesPerShirt": 0,
+      "extraOperatorLabor": 0,
+      "extraDesignerMinutesPerOrder": 5,
+      "extraDesignerLabor": 0.15901041666666665
+    },
+    {
+      "service": "Vertical Print",
+      "engineCogs": 2.6973745069033526,
+      "enginePrice": 7,
+      "policyFloor": 0,
+      "manualOverride": null,
+      "effectivePrice": 7,
+      "grossMargin": 0.6146607847280924,
+      "status": "Engine price",
+      "operatorOperatingCost": 0.19397707100591716,
+      "extraOperatorMinutesPerShirt": 0,
+      "extraOperatorLabor": 0,
+      "extraDesignerMinutesPerOrder": 5,
+      "extraDesignerLabor": 0.1957051282051282
+    },
+    {
+      "service": "Name",
+      "engineCogs": 2.905990959894806,
+      "enginePrice": 7,
+      "policyFloor": 0,
+      "manualOverride": null,
+      "effectivePrice": 7,
+      "grossMargin": 0.5848584343007419,
+      "status": "Engine price",
+      "operatorOperatingCost": 0.19397707100591716,
+      "extraOperatorMinutesPerShirt": 0,
+      "extraOperatorLabor": 0,
+      "extraDesignerMinutesPerOrder": 5,
+      "extraDesignerLabor": 0.21201388888888886
+    },
+    {
+      "service": "Number",
+      "engineCogs": 2.905990959894806,
+      "enginePrice": 7,
+      "policyFloor": 0,
+      "manualOverride": null,
+      "effectivePrice": 7,
+      "grossMargin": 0.5848584343007419,
+      "status": "Engine price",
+      "operatorOperatingCost": 0.19397707100591716,
+      "extraOperatorMinutesPerShirt": 0,
+      "extraOperatorLabor": 0,
+      "extraDesignerMinutesPerOrder": 5,
+      "extraDesignerLabor": 0.21201388888888886
+    },
+    {
+      "service": "Name + Number",
+      "engineCogs": 4.767468030900722,
+      "enginePrice": 12,
+      "policyFloor": 0,
+      "manualOverride": null,
+      "effectivePrice": 12,
+      "grossMargin": 0.6027109974249398,
+      "status": "Engine price",
+      "operatorOperatingCost": 0.3879541420118343,
+      "extraOperatorMinutesPerShirt": 0,
+      "extraOperatorLabor": 0,
+      "extraDesignerMinutesPerOrder": 5,
+      "extraDesignerLabor": 0.21201388888888886
+    },
+    {
+      "service": "Standard Package",
+      "engineCogs": 3.118004848783695,
+      "enginePrice": 8,
+      "policyFloor": 0,
+      "manualOverride": null,
+      "effectivePrice": 8,
+      "grossMargin": 0.6102493939020381,
+      "status": "Engine price",
+      "operatorOperatingCost": 0.19397707100591716,
+      "extraOperatorMinutesPerShirt": 0,
+      "extraOperatorLabor": 0,
+      "extraDesignerMinutesPerOrder": 10,
+      "extraDesignerLabor": 0.4240277777777777
+    },
+    {
+      "service": "Premium Package",
+      "engineCogs": 6.784102728468112,
+      "enginePrice": 17,
+      "policyFloor": 0,
+      "manualOverride": 20,
+      "effectivePrice": 20,
+      "grossMargin": 0.6607948635765943,
+      "status": "Manual override",
+      "operatorOperatingCost": 0.7759082840236686,
+      "extraOperatorMinutesPerShirt": 0,
+      "extraOperatorLabor": 0,
+      "extraDesignerMinutesPerOrder": 10,
+      "extraDesignerLabor": 0.4240277777777777
+    }
+  ],
+  "itemCalculatorCurrentScenario": {
+    "inputs": {
+      "productCost": 3.95,
+      "quantity": 84,
+      "decorationMethod": "DTF",
+      "productionMode": "Average",
+      "transferSize": "10 x 10 in",
+      "printLocations": 1,
+      "productCostMultiplier": 2,
+      "pricingMode": "Build Price",
+      "decorationPriceBasis": "Tier Matrix",
+      "tierPriceLane": "T1"
+    },
+    "outputs": {
+      "productSell": 7.9,
+      "decorationSell": 6.550000000000001,
+      "salesPrice": 14.450000000000001,
+      "commissionReserve": 1.1560000000000001,
+      "totalDecorationCogs": 3.140465166244012,
+      "totalProductionCogs": 7.090465166244012,
+      "grossProfitBeforeCommission": 7.359534833755989,
+      "netContributionAfterCommission": 6.203534833755988,
+      "combinedGrossMarginBeforeCommission": 0.5093103691180615,
+      "contributionMarginAfterCommission": 0.4293103691180614,
+      "salesOrderTotal": 1213.8000000000002,
+      "productionCogsOrderTotal": 595.599073964497,
+      "netContributionOrderTotal": 521.096926035503
+    }
+  },
+  "flatFeeQuickQuoteCurrentScenario": {
+    "orderQuantity": 35,
+    "selectedService": "Sleeve Print",
+    "billableQuantity": 35,
+    "pricePerShirt": 5,
+    "addOnTotal": 175
+  },
+  "pooledIncrementalReference": {
+    "Service Key": "ADD_LARGE",
+    "Service": "Additional Large Print",
+    "Qty": 12,
+    "Unique Groups": 2,
+    "Pooled Length": 97.55,
+    "Pooled Purchase": 89.97,
+    "Base Length": 61.25,
+    "Base Purchase": 59.97,
+    "Add-On Placements / Shirt": 1,
+    "Incremental Material / Shirt": 2.5,
+    "Operator Operating Cost": 0.19397707100591716,
+    "Extra Operator Labor": 0,
+    "Designer Labor": 0.4240277777777777,
+    "Incremental COGS / Shirt": 3.118004848783695,
+    "T1 Price": 7.45,
+    "Engine Whole": 8
+  },
+  "dtfEngine": {
+    "capturedTransferSizeIn": {
+      "width": 10,
+      "height": 10
+    },
+    "sheetWidthIn": 22,
+    "spacingIn": 0.25,
+    "sheetOptions": [
+      {
+        "label": "1 ft",
+        "lengthIn": 12,
+        "publishedPrice": 16.99,
+        "portraitCapacityAtCapturedSize": 2,
+        "landscapeCapacityAtCapturedSize": 2,
+        "usableCapacityAtCapturedSize": 2,
+        "effectiveSheetCost": 16.99
+      },
+      {
+        "label": "2 ft",
+        "lengthIn": 24,
+        "publishedPrice": 19.99,
+        "portraitCapacityAtCapturedSize": 4,
+        "landscapeCapacityAtCapturedSize": 4,
+        "usableCapacityAtCapturedSize": 4,
+        "effectiveSheetCost": 19.99
+      },
+      {
+        "label": "5 ft",
+        "lengthIn": 60,
+        "publishedPrice": 49.99,
+        "portraitCapacityAtCapturedSize": 10,
+        "landscapeCapacityAtCapturedSize": 10,
+        "usableCapacityAtCapturedSize": 10,
+        "effectiveSheetCost": 49.99
+      },
+      {
+        "label": "7 ft",
+        "lengthIn": 84,
+        "publishedPrice": 69.99,
+        "portraitCapacityAtCapturedSize": 16,
+        "landscapeCapacityAtCapturedSize": 16,
+        "usableCapacityAtCapturedSize": 16,
+        "effectiveSheetCost": 69.99
+      },
+      {
+        "label": "10 ft",
+        "lengthIn": 120,
+        "publishedPrice": 89.99,
+        "portraitCapacityAtCapturedSize": 22,
+        "landscapeCapacityAtCapturedSize": 22,
+        "usableCapacityAtCapturedSize": 22,
+        "effectiveSheetCost": 89.99
+      },
+      {
+        "label": "15 ft",
+        "lengthIn": 180,
+        "publishedPrice": 109.99,
+        "portraitCapacityAtCapturedSize": 34,
+        "landscapeCapacityAtCapturedSize": 34,
+        "usableCapacityAtCapturedSize": 34,
+        "effectiveSheetCost": 109.99
+      },
+      {
+        "label": "20 ft",
+        "lengthIn": 240,
+        "publishedPrice": 129.99,
+        "portraitCapacityAtCapturedSize": 46,
+        "landscapeCapacityAtCapturedSize": 46,
+        "usableCapacityAtCapturedSize": 46,
+        "effectiveSheetCost": 129.99
+      },
+      {
+        "label": "30 ft",
+        "lengthIn": 360,
+        "publishedPrice": 179.99,
+        "portraitCapacityAtCapturedSize": 70,
+        "landscapeCapacityAtCapturedSize": 70,
+        "usableCapacityAtCapturedSize": 70,
+        "effectiveSheetCost": 179.99
+      },
+      {
+        "label": "40 ft",
+        "lengthIn": 480,
+        "publishedPrice": 210.99,
+        "portraitCapacityAtCapturedSize": 92,
+        "landscapeCapacityAtCapturedSize": 92,
+        "usableCapacityAtCapturedSize": 92,
+        "effectiveSheetCost": 210.99
+      }
+    ],
+    "productionModes": [
+      {
+        "key": "one-operator",
+        "label": "1 Operator",
+        "throughputPerHour": 260,
+        "directLaborPerHour": 15,
+        "facilityOverheadPerHour": 40.223076923076924,
+        "operatingCostPerPlacement": 0.212396449704142
+      },
+      {
+        "key": "two-operators",
+        "label": "2 Operators",
+        "throughputPerHour": 400,
+        "directLaborPerHour": 30,
+        "facilityOverheadPerHour": 40.223076923076924,
+        "operatingCostPerPlacement": 0.1755576923076923
+      },
+      {
+        "key": "average",
+        "label": "Average",
+        "operatingCostPerPlacement": 0.19397707100591716
+      }
+    ],
+    "activeProductionMode": "Average",
+    "pricingMode": "Tier-Based",
+    "sharedProjectLaborPerOrder": 36.515,
+    "volumeAveragedSharedLaborPerGarment": 0.4753476247274354,
+    "tierPriceMatrix": [
+      {
+        "tier": "1",
+        "minQty": 1,
+        "maxQty": 1,
+        "activeTotalDtfCogs": 42.09205399408284,
+        "prices": {
+          "T1": 47.7,
+          "T2": 46.7,
+          "T3": 45.85,
+          "T4": 45.1
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 1 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "2",
+        "minQty": 2,
+        "maxQty": 2,
+        "activeTotalDtfCogs": 23.83455399408284,
+        "prices": {
+          "T1": 29.450000000000003,
+          "T2": 28.400000000000002,
+          "T3": 27.6,
+          "T4": 26.85
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 2 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "3",
+        "minQty": 3,
+        "maxQty": 3,
+        "activeTotalDtfCogs": 17.748720660749505,
+        "prices": {
+          "T1": 23.35,
+          "T2": 22.35,
+          "T3": 21.5,
+          "T4": 20.8
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 3 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "4",
+        "minQty": 4,
+        "maxQty": 4,
+        "activeTotalDtfCogs": 14.70580399408284,
+        "prices": {
+          "T1": 20.3,
+          "T2": 19.3,
+          "T3": 18.45,
+          "T4": 17.75
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 4 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "5",
+        "minQty": 5,
+        "maxQty": 5,
+        "activeTotalDtfCogs": 12.88005399408284,
+        "prices": {
+          "T1": 18.5,
+          "T2": 17.45,
+          "T3": 16.6,
+          "T4": 15.9
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 5 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "6",
+        "minQty": 6,
+        "maxQty": 6,
+        "activeTotalDtfCogs": 11.662887327416174,
+        "prices": {
+          "T1": 17.25,
+          "T2": 16.25,
+          "T3": 15.4,
+          "T4": 14.700000000000001
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 6 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "7",
+        "minQty": 7,
+        "maxQty": 7,
+        "activeTotalDtfCogs": 10.793482565511411,
+        "prices": {
+          "T1": 16.400000000000002,
+          "T2": 15.4,
+          "T3": 14.55,
+          "T4": 13.8
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 7 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "8",
+        "minQty": 8,
+        "maxQty": 8,
+        "activeTotalDtfCogs": 10.14142899408284,
+        "prices": {
+          "T1": 15.75,
+          "T2": 14.75,
+          "T3": 13.9,
+          "T4": 13.15
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 8 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "9",
+        "minQty": 9,
+        "maxQty": 9,
+        "activeTotalDtfCogs": 9.634276216305063,
+        "prices": {
+          "T1": 15.25,
+          "T2": 14.200000000000001,
+          "T3": 13.4,
+          "T4": 12.65
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 9 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "10",
+        "minQty": 10,
+        "maxQty": 10,
+        "activeTotalDtfCogs": 9.22855399408284,
+        "prices": {
+          "T1": 14.850000000000001,
+          "T2": 13.8,
+          "T3": 12.950000000000001,
+          "T4": 12.25
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 10 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "11",
+        "minQty": 11,
+        "maxQty": 11,
+        "activeTotalDtfCogs": 8.896599448628296,
+        "prices": {
+          "T1": 14.5,
+          "T2": 13.5,
+          "T3": 12.65,
+          "T4": 11.9
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 11 at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "12-23",
+        "minQty": 12,
+        "maxQty": 23,
+        "activeTotalDtfCogs": 8.619970660749507,
+        "prices": {
+          "T1": 14.200000000000001,
+          "T2": 13.200000000000001,
+          "T3": 12.350000000000001,
+          "T4": 11.65
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 13
+      },
+      {
+        "tier": "24-35",
+        "minQty": 24,
+        "maxQty": 35,
+        "activeTotalDtfCogs": 6.17293540433925,
+        "prices": {
+          "T1": 10.850000000000001,
+          "T2": 10,
+          "T3": 9.3,
+          "T4": 8.700000000000001
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 24
+      },
+      {
+        "tier": "36-47",
+        "minQty": 36,
+        "maxQty": 47,
+        "activeTotalDtfCogs": 4.735504848783695,
+        "prices": {
+          "T1": 8.5,
+          "T2": 7.800000000000001,
+          "T3": 7.25,
+          "T4": 6.75
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 36
+      },
+      {
+        "tier": "48-71",
+        "minQty": 48,
+        "maxQty": 71,
+        "activeTotalDtfCogs": 4.228627806300034,
+        "prices": {
+          "T1": 7.7,
+          "T2": 7.1000000000000005,
+          "T3": 6.550000000000001,
+          "T4": 6.1000000000000005
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 51
+      },
+      {
+        "tier": "72-143",
+        "minQty": 72,
+        "maxQty": 143,
+        "activeTotalDtfCogs": 3.514329848783695,
+        "prices": {
+          "T1": 6.550000000000001,
+          "T2": 6,
+          "T3": 5.550000000000001,
+          "T4": 5.15
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 75
+      },
+      {
+        "tier": "144-249",
+        "minQty": 144,
+        "maxQty": 249,
+        "activeTotalDtfCogs": 3.1072133238403845,
+        "prices": {
+          "T1": 6,
+          "T2": 5.45,
+          "T3": 5.050000000000001,
+          "T4": 4.65
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 147
+      },
+      {
+        "tier": "250-499",
+        "minQty": 250,
+        "maxQty": 499,
+        "activeTotalDtfCogs": 2.8083094962550863,
+        "prices": {
+          "T1": 5.5,
+          "T2": 5,
+          "T3": 4.6000000000000005,
+          "T4": 4.25
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 301
+      },
+      {
+        "tier": "500-749",
+        "minQty": 500,
+        "maxQty": 749,
+        "activeTotalDtfCogs": 2.6649294011030045,
+        "prices": {
+          "T1": 5.300000000000001,
+          "T2": 4.800000000000001,
+          "T3": 4.4,
+          "T4": 4.1000000000000005
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 515
+      },
+      {
+        "tier": "750-999",
+        "minQty": 750,
+        "maxQty": 999,
+        "activeTotalDtfCogs": 2.605213014939338,
+        "prices": {
+          "T1": 5.2,
+          "T2": 4.7,
+          "T3": 4.3500000000000005,
+          "T4": 4
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 761
+      },
+      {
+        "tier": "1000-1499",
+        "minQty": 1000,
+        "maxQty": 1499,
+        "activeTotalDtfCogs": 2.5746290044678264,
+        "prices": {
+          "T1": 5.15,
+          "T2": 4.7,
+          "T3": 4.3,
+          "T4": 3.95
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 1037
+      },
+      {
+        "tier": "1500-2499",
+        "minQty": 1500,
+        "maxQty": 2499,
+        "activeTotalDtfCogs": 2.546951707548156,
+        "prices": {
+          "T1": 5.1000000000000005,
+          "T2": 4.65,
+          "T3": 4.25,
+          "T4": 3.95
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 1527
+      },
+      {
+        "tier": "2500+",
+        "minQty": 2500,
+        "maxQty": 5000,
+        "activeTotalDtfCogs": 2.5231596759684995,
+        "prices": {
+          "T1": 5.050000000000001,
+          "T2": 4.6000000000000005,
+          "T3": 4.2,
+          "T4": 3.9000000000000004
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 2539
+      }
+    ],
+    "optimizerRules": [
+      "For one transfer geometry, evaluate both orientations against the 22-inch sheet width and use the better capacity.",
+      "Calculate required sheet length including 0.25-inch spacing between rows.",
+      "Select the least-cost combination of available sheet lengths that covers the required length; do not assume one single sheet SKU.",
+      "Material COGS per garment equals optimized purchase cost divided by garments.",
+      "Operating COGS equals selected operating cost per placement times print locations.",
+      "Tier-Based shared project labor is allocated by the relevant quantity basis and recovered at cost.",
+      "Small orders 1-11 use the captured 12-23 pooled base-decoration proxy while project labor divides by actual quantity."
+    ]
+  },
+  "productCatalogFile": "source/product-catalog.json",
+  "pooledDtfPolicy": {
+    "baseComponent": {
+      "sizeKey": "FLAT_BASE",
+      "quantityPerShirt": 1,
+      "includedInBasePrice": true
+    },
+    "modeledQuantities": [
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23
+    ],
+    "engineMarginLane": "T1",
+    "engineMargin": 0.58,
+    "wholeDollarRecommendation": "Round the margin-loaded recommendation upward to the next whole dollar.",
+    "incrementalCostFormula": "max(0, pooledPurchase - baseOnlyPurchase) / quantity + operatorOperatingCost + extraOperatorLabor + extraDesignerLabor",
+    "serviceCompositions": {
+      "Additional Large Print": [
+        {
+          "sizeKey": "FLAT_LARGE",
+          "quantityPerShirt": 1
+        }
+      ],
+      "Sleeve Print": [
+        {
+          "sizeKey": "FLAT_SLEEVE",
+          "quantityPerShirt": 1
+        }
+      ],
+      "Bottom / Upper Chest": [
+        {
+          "sizeKey": "FLAT_BOTTOM_CHEST",
+          "quantityPerShirt": 1
+        }
+      ],
+      "Vertical Print": [
+        {
+          "sizeKey": "FLAT_VERTICAL",
+          "quantityPerShirt": 1
+        }
+      ],
+      "Name": [
+        {
+          "sizeKey": "FLAT_NAME",
+          "quantityPerShirt": 1
+        }
+      ],
+      "Number": [
+        {
+          "sizeKey": "FLAT_NUMBER",
+          "quantityPerShirt": 1
+        }
+      ],
+      "Name + Number": [
+        {
+          "sizeKey": "FLAT_NAME",
+          "quantityPerShirt": 1
+        },
+        {
+          "sizeKey": "FLAT_NUMBER",
+          "quantityPerShirt": 1
+        }
+      ],
+      "Standard Package": [
+        {
+          "sizeKey": "FLAT_LARGE",
+          "quantityPerShirt": 1
+        }
+      ],
+      "Premium Package": [
+        {
+          "sizeKey": "FLAT_LARGE",
+          "quantityPerShirt": 1
+        },
+        {
+          "sizeKey": "FLAT_SLEEVE",
+          "quantityPerShirt": 1
+        },
+        {
+          "sizeKey": "FLAT_NAME",
+          "quantityPerShirt": 1
+        },
+        {
+          "sizeKey": "FLAT_NUMBER",
+          "quantityPerShirt": 1
+        }
+      ]
+    }
+  },
+  "inputConstraints": {
+    "productCost": {
+      "type": "decimal",
+      "minimum": 0
+    },
+    "quantity": {
+      "type": "integer",
+      "minimum": 1,
+      "maximumWithoutManagerReview": 5000
+    },
+    "manualOverride": {
+      "type": "nullable decimal",
+      "minimumWhenPopulated": 0
+    },
+    "extraOperatorMinutesPerShirt": {
+      "type": "decimal",
+      "minimum": 0
+    },
+    "extraDesignerMinutesPerOrder": {
+      "type": "decimal",
+      "minimum": 0
+    },
+    "catalogSelection": "Either a captured product SKU or Manual Product Cost mode is required."
+  }
+}

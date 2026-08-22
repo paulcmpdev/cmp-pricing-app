@@ -1,0 +1,364 @@
+{
+  "products": [
+    {
+      "category": "Tops",
+      "sku": "ST400",
+      "name": "SanMar - PosiCharge Tri-Blend Raglan Tee (Short Sleeve)",
+      "bulkPrice": null,
+      "onlineShopPrice": 28,
+      "productCost": 5.68
+    },
+    {
+      "category": "Tops",
+      "sku": "ST400LS",
+      "name": "SanMar - PosiCharge Tri-Blend Raglan Tee (Long Sleeve)",
+      "bulkPrice": null,
+      "onlineShopPrice": 30,
+      "productCost": 8.27
+    },
+    {
+      "category": "Tops",
+      "sku": "ST6040",
+      "name": "SanMar - Halftime Short Sleeve Tee",
+      "bulkPrice": null,
+      "onlineShopPrice": 25,
+      "productCost": 4.65
+    },
+    {
+      "category": "Tops",
+      "sku": "LST410",
+      "name": "SanMar - Triblend Draft Hoodie Tank",
+      "bulkPrice": null,
+      "onlineShopPrice": 30,
+      "productCost": 10.86
+    },
+    {
+      "category": "Tops",
+      "sku": "ST6044",
+      "name": "SanMar - Halftime Long Sleeve Unisex Hoodie",
+      "bulkPrice": null,
+      "onlineShopPrice": 28,
+      "productCost": 7.23
+    },
+    {
+      "category": "Tops",
+      "sku": "LST60403",
+      "name": "SanMar - Women\u2019s Halftime LS Stripe V-Neck",
+      "bulkPrice": null,
+      "onlineShopPrice": 28,
+      "productCost": 6.72
+    },
+    {
+      "category": "Tops",
+      "sku": "LNEA123",
+      "name": "New Era - Sueded Cotton Blend Cowl Tee",
+      "bulkPrice": null,
+      "onlineShopPrice": 40,
+      "productCost": 16.55
+    },
+    {
+      "category": "Tops",
+      "sku": "LST6041",
+      "name": "SanMar - Women\u2019s Halftime Notch Neck Tee",
+      "bulkPrice": null,
+      "onlineShopPrice": 28,
+      "productCost": 5.16
+    },
+    {
+      "category": "Tops",
+      "sku": "ST359",
+      "name": "Sport-Tek - Competitor 2-Button Henley",
+      "bulkPrice": 25,
+      "onlineShopPrice": 30,
+      "productCost": 6.2
+    },
+    {
+      "category": "Tops",
+      "sku": "LNEA108",
+      "name": "New Era - Heritage Blend Varsity Hoodie",
+      "bulkPrice": 35,
+      "onlineShopPrice": 40,
+      "productCost": 14.49
+    },
+    {
+      "category": "Tops",
+      "sku": "3001",
+      "name": "BELLA+CANVAS - Unisex Jersey Short Sleeve Tee",
+      "bulkPrice": 18,
+      "onlineShopPrice": 25,
+      "productCost": 4.49
+    },
+    {
+      "category": "Tops",
+      "sku": "3001Y",
+      "name": "BELLA+CANVAS - Youth Jersey Short Sleeve Tee",
+      "bulkPrice": 18,
+      "onlineShopPrice": 25,
+      "productCost": 3.99
+    },
+    {
+      "category": "Tops",
+      "sku": "6400",
+      "name": "BELLA+CANVAS - Women\u2019s Relaxed Jersey Short Sleeve Tee",
+      "bulkPrice": 18,
+      "onlineShopPrice": 25,
+      "productCost": 4.36
+    },
+    {
+      "category": "Tops",
+      "sku": "3501",
+      "name": "BELLA+CANVAS - Unisex Jersey Long Sleeve Tee",
+      "bulkPrice": 22,
+      "onlineShopPrice": 28,
+      "productCost": 6.99
+    },
+    {
+      "category": "Tops",
+      "sku": "3501Y",
+      "name": "BELLA+CANVAS - Youth Jersey Short Sleeve Tee",
+      "bulkPrice": 22,
+      "onlineShopPrice": 28,
+      "productCost": 6.37
+    },
+    {
+      "category": "Bottoms",
+      "sku": "ST485",
+      "name": "Sport-Tek - Repeat 7\" Short",
+      "bulkPrice": null,
+      "onlineShopPrice": 35,
+      "productCost": 11.37
+    },
+    {
+      "category": "Bottoms",
+      "sku": "PST871",
+      "name": "Men's Sport-Tek Circuit Jogger",
+      "bulkPrice": 55,
+      "onlineShopPrice": 65,
+      "productCost": 25.86
+    },
+    {
+      "category": "Bottoms",
+      "sku": "LPST871",
+      "name": "Ladies Sport-Tek Circuit Jogger",
+      "bulkPrice": 55,
+      "onlineShopPrice": 65,
+      "productCost": 25.86
+    },
+    {
+      "category": "Bottoms",
+      "sku": "N5387",
+      "name": "A4 5\" Cooling Performance Shorts",
+      "bulkPrice": 18,
+      "onlineShopPrice": 20,
+      "productCost": 4.15
+    },
+    {
+      "category": "Bottoms",
+      "sku": "NB5244",
+      "name": "A4 4\" Youth Cooling Performance Shorts",
+      "bulkPrice": 18,
+      "onlineShopPrice": 20,
+      "productCost": 4.15
+    },
+    {
+      "category": "Bottoms",
+      "sku": "212011-009",
+      "name": "Spiritwear High Waisted Legging",
+      "bulkPrice": 30,
+      "onlineShopPrice": 35,
+      "productCost": 4.15
+    },
+    {
+      "category": "Jackets",
+      "sku": "JST489",
+      "name": "Sport-Tek - Repeat Short Sleeve Cage 1/2-Zip Jacket (Adult)",
+      "bulkPrice": null,
+      "onlineShopPrice": 48,
+      "productCost": 16.55
+    },
+    {
+      "category": "Jackets",
+      "sku": "YST489",
+      "name": "Sport-Tek - Repeat Short Sleeve Cage 1/2-Zip Jacket (Youth)",
+      "bulkPrice": null,
+      "onlineShopPrice": 45,
+      "productCost": 13.44
+    },
+    {
+      "category": "Jackets",
+      "sku": "JST488",
+      "name": "Sport-Tek - Repeat LS 1/2-Zip Hooded Jacket",
+      "bulkPrice": null,
+      "onlineShopPrice": 55,
+      "productCost": 20.69
+    },
+    {
+      "category": "Jackets",
+      "sku": "ST850",
+      "name": "Sport-Tek - Sport-Wick Stretch 1/4 Zip (Adult)",
+      "bulkPrice": null,
+      "onlineShopPrice": 52,
+      "productCost": 18.62
+    },
+    {
+      "category": "Jackets",
+      "sku": "LST850",
+      "name": "Sport-Tek - Sport-Wick Stretch 1/4 Zip (Ladies)",
+      "bulkPrice": null,
+      "onlineShopPrice": 52,
+      "productCost": 18.62
+    },
+    {
+      "category": "Jackets",
+      "sku": "NEA523",
+      "name": "New Era - Venue 1/4 Zip Fleece",
+      "bulkPrice": null,
+      "onlineShopPrice": 78,
+      "productCost": 31.66
+    },
+    {
+      "category": "Jackets",
+      "sku": "A401",
+      "name": "Adidas Lightweight 1/4 zip Pullover",
+      "bulkPrice": 68,
+      "onlineShopPrice": 75,
+      "productCost": 30
+    },
+    {
+      "category": "Jackets",
+      "sku": "EXP54LWZ",
+      "name": "Light Weight Windbreaker Zip Jacket",
+      "bulkPrice": 45,
+      "onlineShopPrice": 50,
+      "productCost": 17.55
+    },
+    {
+      "category": "Fleece",
+      "sku": "ST251",
+      "name": "Sport-Tek - Sport-Wick Fleece Short Sleeve Hooded Pullover",
+      "bulkPrice": null,
+      "onlineShopPrice": 50,
+      "productCost": 18.62
+    },
+    {
+      "category": "Fleece",
+      "sku": "ST267",
+      "name": "SanMar - Raglan Colorblock Pullover Hooded Sweatshirt",
+      "bulkPrice": null,
+      "onlineShopPrice": 58,
+      "productCost": 20.69
+    },
+    {
+      "category": "Fleece",
+      "sku": "STF205",
+      "name": "Sport-Tek - ST Drive Colorblock Fleece",
+      "bulkPrice": null,
+      "onlineShopPrice": 48,
+      "productCost": 16.03
+    },
+    {
+      "category": "Fleece",
+      "sku": "DT6102",
+      "name": "District - V.I.T. Fleece Full-Zip Hoodie",
+      "bulkPrice": null,
+      "onlineShopPrice": 45,
+      "productCost": 14.48
+    },
+    {
+      "category": "Fleece",
+      "sku": "DT6107",
+      "name": "District - V.I.T. Fleece Jogger",
+      "bulkPrice": null,
+      "onlineShopPrice": 42,
+      "productCost": 13.44
+    },
+    {
+      "category": "Fleece",
+      "sku": "PC90",
+      "name": "Port & Co\u2122 Essential Fleece Crewneck Sweatshirt",
+      "bulkPrice": 25,
+      "onlineShopPrice": 30,
+      "productCost": 10.63
+    },
+    {
+      "category": "Fleece",
+      "sku": "PC90Y",
+      "name": "Port & Co\u2122 Youth Core Fleece Crewneck Sweatshirt",
+      "bulkPrice": 25,
+      "onlineShopPrice": 30,
+      "productCost": 7.89
+    },
+    {
+      "category": "Fleece",
+      "sku": "PC90H",
+      "name": "Port & Co\u2122 Essential Fleece Pullover Hooded Sweatshirt",
+      "bulkPrice": 30,
+      "onlineShopPrice": 35,
+      "productCost": 15.59
+    },
+    {
+      "category": "Fleece",
+      "sku": "LPC78H",
+      "name": "Port & Co\u2122 Women's Core Fleece Pullover Hooded Sweatshirt",
+      "bulkPrice": 30,
+      "onlineShopPrice": 35,
+      "productCost": 12.65
+    },
+    {
+      "category": "Fleece",
+      "sku": "PC90YH",
+      "name": "Port & Co\u2122 Youth Core Fleece Pullover Hooded Sweatshirt",
+      "bulkPrice": 30,
+      "onlineShopPrice": 35,
+      "productCost": 11.1
+    },
+    {
+      "category": "Fleece",
+      "sku": "PC78J",
+      "name": "Port & Co\u2122 Core Fleece Jogger",
+      "bulkPrice": 30,
+      "onlineShopPrice": 30,
+      "productCost": 10.34
+    },
+    {
+      "category": "Fleece",
+      "sku": "PC78YJ",
+      "name": "Port & Co\u2122 Youth Core Fleece Jogger",
+      "bulkPrice": 30,
+      "onlineShopPrice": 30,
+      "productCost": 6.15
+    },
+    {
+      "category": "Polos",
+      "sku": "A230",
+      "name": "Adidas Performance Polo",
+      "bulkPrice": 45,
+      "onlineShopPrice": 50,
+      "productCost": 19.75
+    },
+    {
+      "category": "Accessories",
+      "sku": "STC64",
+      "name": "Sport-Tek - ST Pro-Cut Stretch-Tek Cap",
+      "bulkPrice": null,
+      "onlineShopPrice": 25,
+      "productCost": 5.99
+    },
+    {
+      "category": "Accessories",
+      "sku": "STC65",
+      "name": "Sport-Tek - ST Pro-Cut Adjustable Cap",
+      "bulkPrice": null,
+      "onlineShopPrice": 25,
+      "productCost": 5.68
+    },
+    {
+      "category": "Accessories",
+      "sku": "NEB600",
+      "name": "New Era - Game Day Cinch",
+      "bulkPrice": null,
+      "onlineShopPrice": 30,
+      "productCost": 9.3
+    }
+  ]
+}

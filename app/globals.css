@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --cmp-cyan: #2AC0DB;
+    --cmp-cyan-dark: #1EA8C0;
+    --cmp-cyan-light: #E8F8FB;
+    --cmp-gray: #8B8E90;
+    --cmp-gray-light: #D1D3D4;
+    --cmp-charcoal: #231F20;
+    --cmp-surface: #F5F5F5;
+    --cmp-white: #FFFFFF;
+    --cmp-danger: #DC2626;
+    --cmp-warning: #D97706;
+    --cmp-success: #059669;
+  }
+
+  html {
+    font-family: 'DIN', 'DIN 2014', 'Inter', system-ui, sans-serif;
+    color: var(--cmp-charcoal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-cmp-surface min-h-screen;
+  }
+
+  /* Focus ring for accessibility */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-cmp-cyan;
+  }
+
+  /* Headings use display font */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Eurostile', 'Eurostile Extended', 'Barlow Semi Condensed', 'Arial Narrow', sans-serif;
+  }
+}
+
+@layer components {
+  .cmp-input {
+    @apply w-full rounded-md border border-cmp-gray-light bg-white px-3 py-2
+           text-sm text-cmp-charcoal shadow-sm
+           transition-colors
+           placeholder:text-cmp-gray
+           focus:border-cmp-cyan focus:outline-none focus:ring-2 focus:ring-cmp-cyan/30;
+  }
+
+  .cmp-select {
+    @apply cmp-input appearance-none bg-no-repeat;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238B8E90' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    padding-right: 2rem;
+  }
+
+  .cmp-label {
+    @apply block text-xs font-medium uppercase tracking-wider text-cmp-gray mb-1;
+  }
+
+  .cmp-btn-primary {
+    @apply inline-flex items-center justify-center rounded-md bg-cmp-cyan px-4 py-2
+           text-sm font-semibold text-white shadow-sm
+           transition-colors
+           hover:bg-cmp-cyan-dark focus-visible:outline-cmp-cyan
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .cmp-btn-secondary {
+    @apply inline-flex items-center justify-center rounded-md border border-cmp-gray-light
+           bg-white px-4 py-2 text-sm font-medium text-cmp-charcoal shadow-sm
+           transition-colors
+           hover:bg-cmp-surface focus-visible:outline-cmp-cyan;
+  }
+
+  .cmp-card {
+    @apply rounded-lg bg-white shadow-sm border border-cmp-gray-light/50;
+  }
+
+  .cmp-value-readonly {
+    @apply text-sm font-medium text-cmp-charcoal bg-cmp-surface rounded-md px-3 py-2;
+  }
+
+  .cmp-price-hero {
+    @apply text-3xl font-bold tracking-tight text-cmp-charcoal;
+    font-family: 'Eurostile', 'Eurostile Extended', 'Barlow Semi Condensed', 'Arial Narrow', sans-serif;
+  }
+}

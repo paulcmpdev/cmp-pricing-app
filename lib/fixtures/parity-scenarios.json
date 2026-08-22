@@ -1,0 +1,505 @@
+{
+  "schemaVersion": "1.0.0",
+  "rules": [
+    "Use exact decimal math internally; round only at workbook-defined boundaries.",
+    "No implementation is accepted if these fixtures fail.",
+    "This captured workbook version is the MVP contract until explicitly refreshed."
+  ],
+  "scenarios": [
+    {
+      "id": "item-forward-current",
+      "description": "Current forward item calculator state from workbook.",
+      "inputs": {
+        "productCost": 3.95,
+        "quantity": 84,
+        "decorationMethod": "DTF",
+        "productionMode": "Average",
+        "transferSize": "10 x 10 in",
+        "printLocations": 1,
+        "productCostMultiplier": 2,
+        "pricingMode": "Build Price",
+        "decorationPriceBasis": "Tier Matrix",
+        "tierPriceLane": "T1"
+      },
+      "outputs": {
+        "productSell": 7.9,
+        "decorationSell": 6.550000000000001,
+        "salesPrice": 14.450000000000001,
+        "commissionReserve": 1.1560000000000001,
+        "totalDecorationCogs": 3.140465166244012,
+        "totalProductionCogs": 7.090465166244012,
+        "grossProfitBeforeCommission": 7.359534833755989,
+        "netContributionAfterCommission": 6.203534833755988,
+        "combinedGrossMarginBeforeCommission": 0.5093103691180615,
+        "contributionMarginAfterCommission": 0.4293103691180614,
+        "salesOrderTotal": 1213.8000000000002,
+        "productionCogsOrderTotal": 595.599073964497,
+        "netContributionOrderTotal": 521.096926035503
+      },
+      "expectedDisplay": {
+        "productSell": "7.90",
+        "decorationSell": "6.55",
+        "salesPrice": "14.45",
+        "commissionReserve": "1.16",
+        "totalDecorationCogs": "3.14",
+        "totalProductionCogs": "7.09",
+        "grossProfitBeforeCommission": "7.36",
+        "netContributionAfterCommission": "6.20",
+        "combinedGrossMarginBeforeCommission": "50.9%",
+        "contributionMarginAfterCommission": "42.9%",
+        "salesOrderTotal": "1213.80",
+        "productionCogsOrderTotal": "595.60",
+        "netContributionOrderTotal": "521.10"
+      }
+    },
+    {
+      "id": "flat-fee-current-quick-quote",
+      "description": "Current staff Flat Fee quick quote state.",
+      "orderQuantity": 35,
+      "selectedService": "Sleeve Print",
+      "billableQuantity": 35,
+      "pricePerShirt": 5,
+      "addOnTotal": 175
+    },
+    {
+      "id": "minimum-quantity",
+      "description": "Entered quantities below 12 bill at 12.",
+      "inputs": [
+        1,
+        6,
+        11,
+        12,
+        13
+      ],
+      "expectedBillable": [
+        12,
+        12,
+        12,
+        12,
+        13
+      ]
+    },
+    {
+      "id": "manual-override",
+      "description": "Populated override wins; blank override falls back to max(policy floor, engine price).",
+      "examples": [
+        {
+          "service": "Premium Package",
+          "manualOverride": 20,
+          "effectivePrice": 20
+        },
+        {
+          "service": "Additional Large Print",
+          "manualOverride": null,
+          "effectivePrice": 8
+        }
+      ]
+    },
+    {
+      "id": "dtf-tier-q1",
+      "description": "Captured DTF Tier-Based decoration output for tier 1.",
+      "inputs": {
+        "quantity": 1,
+        "lane": "T1",
+        "productionMode": "Average",
+        "pricingMode": "Tier-Based"
+      },
+      "expected": {
+        "tier": "1",
+        "minQty": 1,
+        "maxQty": 1,
+        "activeTotalDtfCogs": 42.09205399408284,
+        "prices": {
+          "T1": 47.7,
+          "T2": 46.7,
+          "T3": 45.85,
+          "T4": 45.1
+        },
+        "pricingBasis": "12-23 pooled base-decoration proxy + project labor / 1 at cost",
+        "costingQtyWorstCase": 13
+      }
+    },
+    {
+      "id": "dtf-tier-q12",
+      "description": "Captured DTF Tier-Based decoration output for tier 12-23.",
+      "inputs": {
+        "quantity": 12,
+        "lane": "T1",
+        "productionMode": "Average",
+        "pricingMode": "Tier-Based"
+      },
+      "expected": {
+        "tier": "12-23",
+        "minQty": 12,
+        "maxQty": 23,
+        "activeTotalDtfCogs": 8.619970660749507,
+        "prices": {
+          "T1": 14.200000000000001,
+          "T2": 13.200000000000001,
+          "T3": 12.350000000000001,
+          "T4": 11.65
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 13
+      }
+    },
+    {
+      "id": "dtf-tier-q84",
+      "description": "Captured DTF Tier-Based decoration output for tier 72-143.",
+      "inputs": {
+        "quantity": 84,
+        "lane": "T1",
+        "productionMode": "Average",
+        "pricingMode": "Tier-Based"
+      },
+      "expected": {
+        "tier": "72-143",
+        "minQty": 72,
+        "maxQty": 143,
+        "activeTotalDtfCogs": 3.514329848783695,
+        "prices": {
+          "T1": 6.550000000000001,
+          "T2": 6,
+          "T3": 5.550000000000001,
+          "T4": 5.15
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 75
+      }
+    },
+    {
+      "id": "dtf-tier-q500",
+      "description": "Captured DTF Tier-Based decoration output for tier 500-749.",
+      "inputs": {
+        "quantity": 500,
+        "lane": "T1",
+        "productionMode": "Average",
+        "pricingMode": "Tier-Based"
+      },
+      "expected": {
+        "tier": "500-749",
+        "minQty": 500,
+        "maxQty": 749,
+        "activeTotalDtfCogs": 2.6649294011030045,
+        "prices": {
+          "T1": 5.300000000000001,
+          "T2": 4.800000000000001,
+          "T3": 4.4,
+          "T4": 4.1000000000000005
+        },
+        "pricingBasis": "Base margin-loaded + Tier-Based labor at cost",
+        "costingQtyWorstCase": 515
+      }
+    },
+    {
+      "id": "pooled-additional-large-print-q12",
+      "description": "Captured pooled incremental flat-fee output for Additional Large Print at quantity 12.",
+      "inputs": {
+        "service": "Additional Large Print",
+        "quantity": 12,
+        "baseSizeKey": "FLAT_BASE",
+        "components": [
+          {
+            "sizeKey": "FLAT_LARGE",
+            "quantityPerShirt": 1
+          }
+        ]
+      },
+      "expected": {
+        "Service Key": "ADD_LARGE",
+        "Service": "Additional Large Print",
+        "Qty": 12,
+        "Unique Groups": 2,
+        "Pooled Length": 97.55,
+        "Pooled Purchase": 89.97,
+        "Base Length": 61.25,
+        "Base Purchase": 59.97,
+        "Add-On Placements / Shirt": 1,
+        "Incremental Material / Shirt": 2.5,
+        "Operator Operating Cost": 0.19397707100591716,
+        "Extra Operator Labor": 0,
+        "Designer Labor": 0.4240277777777777,
+        "Incremental COGS / Shirt": 3.118004848783695,
+        "T1 Price": 7.45,
+        "Engine Whole": 8
+      }
+    },
+    {
+      "id": "pooled-additional-large-print-q23",
+      "description": "Captured pooled incremental flat-fee output for Additional Large Print at quantity 23.",
+      "inputs": {
+        "service": "Additional Large Print",
+        "quantity": 23,
+        "baseSizeKey": "FLAT_BASE",
+        "components": [
+          {
+            "sizeKey": "FLAT_LARGE",
+            "quantityPerShirt": 1
+          }
+        ]
+      },
+      "expected": {
+        "Service Key": "ADD_LARGE",
+        "Service": "Additional Large Print",
+        "Qty": 23,
+        "Unique Groups": 2,
+        "Pooled Length": 195.35,
+        "Pooled Purchase": 129.98,
+        "Base Length": 122.75,
+        "Base Purchase": 106.97999999999999,
+        "Add-On Placements / Shirt": 1,
+        "Incremental Material / Shirt": 1,
+        "Operator Operating Cost": 0.19397707100591716,
+        "Extra Operator Labor": 0,
+        "Designer Labor": 0.221231884057971,
+        "Incremental COGS / Shirt": 1.4152089550638882,
+        "T1 Price": 3.4000000000000004,
+        "Engine Whole": 4
+      }
+    },
+    {
+      "id": "pooled-sleeve-print-q12",
+      "description": "Captured pooled incremental flat-fee output for Sleeve Print at quantity 12.",
+      "inputs": {
+        "service": "Sleeve Print",
+        "quantity": 12,
+        "baseSizeKey": "FLAT_BASE",
+        "components": [
+          {
+            "sizeKey": "FLAT_SLEEVE",
+            "quantityPerShirt": 1
+          }
+        ]
+      },
+      "expected": {
+        "Service Key": "SLEEVE",
+        "Service": "Sleeve Print",
+        "Qty": 12,
+        "Unique Groups": 2,
+        "Pooled Length": 72.5,
+        "Pooled Purchase": 69.98,
+        "Base Length": 61.25,
+        "Base Purchase": 59.97,
+        "Add-On Placements / Shirt": 1,
+        "Incremental Material / Shirt": 0.8341666666666671,
+        "Operator Operating Cost": 0.19397707100591716,
+        "Extra Operator Labor": 0,
+        "Designer Labor": 0.21201388888888886,
+        "Incremental COGS / Shirt": 1.240157626561473,
+        "T1 Price": 3,
+        "Engine Whole": 3
+      }
+    },
+    {
+      "id": "pooled-sleeve-print-q16",
+      "description": "Captured pooled incremental flat-fee output for Sleeve Print at quantity 16.",
+      "inputs": {
+        "service": "Sleeve Print",
+        "quantity": 16,
+        "baseSizeKey": "FLAT_BASE",
+        "components": [
+          {
+            "sizeKey": "FLAT_SLEEVE",
+            "quantityPerShirt": 1
+          }
+        ]
+      },
+      "expected": {
+        "Service Key": "SLEEVE",
+        "Service": "Sleeve Print",
+        "Qty": 16,
+        "Unique Groups": 2,
+        "Pooled Length": 96.75,
+        "Pooled Purchase": 89.97,
+        "Base Length": 81.75,
+        "Base Purchase": 69.98,
+        "Add-On Placements / Shirt": 1,
+        "Incremental Material / Shirt": 1.2493749999999997,
+        "Operator Operating Cost": 0.19397707100591716,
+        "Extra Operator Labor": 0,
+        "Designer Labor": 0.15901041666666665,
+        "Incremental COGS / Shirt": 1.6023624876725835,
+        "T1 Price": 3.85,
+        "Engine Whole": 4
+      }
+    },
+    {
+      "id": "pooled-name-number-q12",
+      "description": "Captured pooled incremental flat-fee output for Name + Number at quantity 12.",
+      "inputs": {
+        "service": "Name + Number",
+        "quantity": 12,
+        "baseSizeKey": "FLAT_BASE",
+        "components": [
+          {
+            "sizeKey": "FLAT_NAME",
+            "quantityPerShirt": 1
+          },
+          {
+            "sizeKey": "FLAT_NUMBER",
+            "quantityPerShirt": 1
+          }
+        ]
+      },
+      "expected": {
+        "Service Key": "NAME_NUMBER",
+        "Service": "Name + Number",
+        "Qty": 12,
+        "Unique Groups": 2,
+        "Pooled Length": 133.85,
+        "Pooled Purchase": 109.97999999999999,
+        "Base Length": 61.25,
+        "Base Purchase": 59.97,
+        "Add-On Placements / Shirt": 2,
+        "Incremental Material / Shirt": 4.1674999999999995,
+        "Operator Operating Cost": 0.3879541420118343,
+        "Extra Operator Labor": 0,
+        "Designer Labor": 0.21201388888888886,
+        "Incremental COGS / Shirt": 4.767468030900722,
+        "T1 Price": 11.4,
+        "Engine Whole": 12
+      }
+    },
+    {
+      "id": "pooled-name-number-q23",
+      "description": "Captured pooled incremental flat-fee output for Name + Number at quantity 23.",
+      "inputs": {
+        "service": "Name + Number",
+        "quantity": 23,
+        "baseSizeKey": "FLAT_BASE",
+        "components": [
+          {
+            "sizeKey": "FLAT_NAME",
+            "quantityPerShirt": 1
+          },
+          {
+            "sizeKey": "FLAT_NUMBER",
+            "quantityPerShirt": 1
+          }
+        ]
+      },
+      "expected": {
+        "Service Key": "NAME_NUMBER",
+        "Service": "Name + Number",
+        "Qty": 23,
+        "Unique Groups": 2,
+        "Pooled Length": 261.9,
+        "Pooled Purchase": 149.98000000000002,
+        "Base Length": 122.75,
+        "Base Purchase": 106.97999999999999,
+        "Add-On Placements / Shirt": 2,
+        "Incremental Material / Shirt": 1.8695652173913055,
+        "Operator Operating Cost": 0.3879541420118343,
+        "Extra Operator Labor": 0,
+        "Designer Labor": 0.1106159420289855,
+        "Incremental COGS / Shirt": 2.3681353014321256,
+        "T1 Price": 5.65,
+        "Engine Whole": 6
+      }
+    },
+    {
+      "id": "pooled-premium-package-q12",
+      "description": "Captured pooled incremental flat-fee output for Premium Package at quantity 12.",
+      "inputs": {
+        "service": "Premium Package",
+        "quantity": 12,
+        "baseSizeKey": "FLAT_BASE",
+        "components": [
+          {
+            "sizeKey": "FLAT_LARGE",
+            "quantityPerShirt": 1
+          },
+          {
+            "sizeKey": "FLAT_SLEEVE",
+            "quantityPerShirt": 1
+          },
+          {
+            "sizeKey": "FLAT_NAME",
+            "quantityPerShirt": 1
+          },
+          {
+            "sizeKey": "FLAT_NUMBER",
+            "quantityPerShirt": 1
+          }
+        ]
+      },
+      "expected": {
+        "Service Key": "PREMIUM",
+        "Service": "Premium Package",
+        "Qty": 12,
+        "Unique Groups": 3,
+        "Pooled Length": 181.39999999999998,
+        "Pooled Purchase": 126.97999999999999,
+        "Base Length": 61.25,
+        "Base Purchase": 59.97,
+        "Add-On Placements / Shirt": 4,
+        "Incremental Material / Shirt": 5.584166666666666,
+        "Operator Operating Cost": 0.7759082840236686,
+        "Extra Operator Labor": 0,
+        "Designer Labor": 0.4240277777777777,
+        "Incremental COGS / Shirt": 6.784102728468112,
+        "T1 Price": 16.2,
+        "Engine Whole": 17
+      }
+    },
+    {
+      "id": "pooled-premium-package-q23",
+      "description": "Captured pooled incremental flat-fee output for Premium Package at quantity 23.",
+      "inputs": {
+        "service": "Premium Package",
+        "quantity": 23,
+        "baseSizeKey": "FLAT_BASE",
+        "components": [
+          {
+            "sizeKey": "FLAT_LARGE",
+            "quantityPerShirt": 1
+          },
+          {
+            "sizeKey": "FLAT_SLEEVE",
+            "quantityPerShirt": 1
+          },
+          {
+            "sizeKey": "FLAT_NAME",
+            "quantityPerShirt": 1
+          },
+          {
+            "sizeKey": "FLAT_NUMBER",
+            "quantityPerShirt": 1
+          }
+        ]
+      },
+      "expected": {
+        "Service Key": "PREMIUM",
+        "Service": "Premium Package",
+        "Qty": 23,
+        "Unique Groups": 3,
+        "Pooled Length": 353.25,
+        "Pooled Purchase": 179.99,
+        "Base Length": 122.75,
+        "Base Purchase": 106.97999999999999,
+        "Add-On Placements / Shirt": 4,
+        "Incremental Material / Shirt": 3.1743478260869575,
+        "Operator Operating Cost": 0.7759082840236686,
+        "Extra Operator Labor": 0,
+        "Designer Labor": 0.221231884057971,
+        "Incremental COGS / Shirt": 4.171487994168597,
+        "T1 Price": 9.950000000000001,
+        "Engine Whole": 10
+      }
+    }
+  ],
+  "comparisonPolicy": {
+    "identifiersStringsIntegers": "Exact equality.",
+    "rawDecimals": {
+      "method": "absolute tolerance",
+      "epsilon": "0.000000001"
+    },
+    "displayCurrency": {
+      "method": "Decimal round half up",
+      "decimalPlaces": 2,
+      "compareAs": "canonical strings such as 14.45 and 1213.80"
+    },
+    "tierPrices": "Compare raw decimal within epsilon and display as two-decimal currency.",
+    "wholeDollarEngineRecommendations": "Exact integer equality."
+  }
+}
