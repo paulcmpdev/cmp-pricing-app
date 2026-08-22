@@ -13,12 +13,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "catalog:sync": "node scripts/sync-vendor-catalog.mjs",
     "catalog:import-vendo": "node scripts/import-vendo-catalog-postgres.mjs",
     "catalog:seed-sqlite": "node scripts/seed-catalog-from-sqlite.mjs",
     "catalog:import-sqlite": "node scripts/import-vendo-catalog.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
+    "csv-parse": "^7.0.2",
     "decimal.js": "^10.4.3",
     "next": "^14.2.15",
     "pg": "^8.16.3",
