@@ -11,6 +11,7 @@ import {
 } from "../repository";
 
 const originalPath = process.env.VENDOR_CATALOG_DB_PATH;
+const originalDatabaseUrl = process.env.VENDOR_CATALOG_DATABASE_URL;
 const tempDirs: string[] = [];
 
 function useFixtureDb() {
@@ -19,10 +20,16 @@ function useFixtureDb() {
   const dbPath = join(dir, "vendor-catalog.sqlite");
   buildVendorCatalogTestDb(dbPath);
   process.env.VENDOR_CATALOG_DB_PATH = dbPath;
+  delete process.env.VENDOR_CATALOG_DATABASE_URL;
   return dbPath;
 }
 
 afterEach(() => {
+  if (originalDatabaseUrl == null) {
+    delete process.env.VENDOR_CATALOG_DATABASE_URL;
+  } else {
+    process.env.VENDOR_CATALOG_DATABASE_URL = originalDatabaseUrl;
+  }
   if (originalPath == null) {
     delete process.env.VENDOR_CATALOG_DB_PATH;
   } else {
@@ -34,19 +41,21 @@ afterEach(() => {
 });
 
 describe("vendor catalog repository", () => {
-  it("reports graceful unavailable state when no SQLite path is configured", () => {
+  it("reports graceful unavailable state when no SQLite path is configured", async () => {
     delete process.env.VENDOR_CATALOG_DB_PATH;
+    delete process.env.VENDOR_CATALOG_DATABASE_URL;
 
-    expect(getVendorCatalogStatus()).toEqual({
+    await expect(getVendorCatalogStatus()).resolves.toEqual({
       available: false,
-      reason: "VENDOR_CATALOG_DB_PATH is not configured.",
+      reason:
+        "Neither VENDOR_CATALOG_DATABASE_URL nor VENDOR_CATALOG_DB_PATH is configured.",
     });
   });
 
-  it("ranks exact style matches before prefix and substring matches", () => {
+  it("ranks exact style matches before prefix and substring matches", async () => {
     useFixtureDb();
 
-    const results = searchVendorCatalogStyles({ query: "3001", vendor: "all" });
+    const results = await searchVendorCatalogStyles({ query: "3001", vendor: "all" });
 
     expect(results.map((style) => style.styleCode)).toEqual([
       "3001",
@@ -55,11 +64,11 @@ describe("vendor catalog repository", () => {
     ]);
   });
 
-  it("returns public style and variant fields without monetary data", () => {
+  it("returns public style and variant fields without monetary data", async () => {
     useFixtureDb();
 
-    const [style] = searchVendorCatalogStyles({ query: "K500", vendor: "sanmar" });
-    const variants = getVendorCatalogStyleVariants(style.id);
+    const [style] = await searchVendorCatalogStyles({ query: "K500", vendor: "sanmar" });
+    const variants = await getVendorCatalogStyleVariants(style.id);
 
     expect(style).toMatchObject({
       id: "sanmar:K500",
@@ -74,22 +83,24 @@ describe("vendor catalog repository", () => {
     }
   });
 
-  it("returns undefined for an unknown variant ID", () => {
+  it("returns undefined for an unknown variant ID", async () => {
     useFixtureDb();
 
-    expect(resolveCatalogVariantCost("ss:does-not-exist")).toBeUndefined();
+    await expect(
+      resolveCatalogVariantCost("ss:does-not-exist")
+    ).resolves.toBeUndefined();
   });
 
-  it("resolves variant costs server-side with contract cost basis", () => {
+  it("resolves variant costs server-side with contract cost basis", async () => {
     useFixtureDb();
 
-    expect(resolveCatalogVariantCost("ss:3001-BLK-M")).toMatchObject({
+    await expect(resolveCatalogVariantCost("ss:3001-BLK-M")).resolves.toMatchObject({
       unitCost: 4.25,
       costBasis: "customerPrice",
       vendor: "ss",
       variantId: "ss:3001-BLK-M",
     });
-    expect(resolveCatalogVariantCost("sanmar:K500-RED-L")).toMatchObject({
+    await expect(resolveCatalogVariantCost("sanmar:K500-RED-L")).resolves.toMatchObject({
       unitCost: 9.75,
       costBasis: "piecePrice",
       vendor: "sanmar",

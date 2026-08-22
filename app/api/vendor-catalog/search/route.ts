@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const status = getVendorCatalogStatus();
+  const status = await getVendorCatalogStatus();
   if (!status.available) {
     return NextResponse.json(
       {
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     available: true,
-    results: searchVendorCatalogStyles({
+    results: await searchVendorCatalogStyles({
       query: parsed.data.q,
       vendor: parsed.data.vendor,
     }),
