@@ -4,7 +4,9 @@ Local, greenfield pricing application for Compound Sportswear. The verified pric
 
 ## Status
 
-Local MVP only. **Do not deploy or share externally.** Manager mode is an evaluation convenience and is not authenticated.
+Internal evaluation MVP. A Vercel deployment exists for rapid end-user testing, but Manager mode is an evaluation convenience and is not authenticated. Do not share the deployment broadly.
+
+Evaluation URL: `https://cmp-pricing-app.vercel.app`
 
 ## Run locally
 
@@ -73,11 +75,11 @@ python3 /Users/paulsanford/Downloads/CMP_Pricing_App_Claude_Packet/source/valida
 
 Staff responses contain customer-facing quote outputs only. Raw product cost, wages, COGS, pooled policy, and manager internals remain server-side and are omitted from Staff responses and static browser bundles.
 
-## Deployment blocker
+## Deployment status and blocker
 
 Manager mode currently uses the client-controlled `x-cmp-role` request header. This is deliberate for local evaluation, but it is **not authorization**. Any shared deployment must add authenticated server-side role enforcement and deployment protection before Manager responses can be exposed.
 
-Do not deploy until Paul explicitly approves both the protection model and deployment.
+The current Vercel URL is temporarily accessible for Paul's active testing. Link secrecy is not access control. Paul has accepted this temporary risk while the code and UI are being refined. Before broader sharing, add authenticated server-side role enforcement and an account-supported deployment-protection method.
 
 ## Source authority
 
