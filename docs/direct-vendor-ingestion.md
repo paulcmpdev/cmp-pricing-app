@@ -119,19 +119,55 @@ Mapping choices:
 
 | Fact | Status |
 |------|--------|
+| SOAP Product Information, Pricing, Inventory, and PromoStandards Product Data v2 WSDLs are reachable on `ws.sanmar.com:8080` | Live verified 2026-08-22 |
+| CMP web-service credentials authenticate against product, customer pricing, inventory, and date-modified calls | Live verified 2026-08-22 |
+| Updated v24.1 onboarding no longer requires customer static-IP whitelisting; port 8080/firewall access is the current connectivity requirement | Verified from July 2025 guide |
+| `getProductDateModified` returns deduplicable changed/new product IDs from a timestamp | Live verified; 334 part records / 15 unique styles in a one-day probe |
+| `getProductInfoByStyleColorSize` with style only returns all current parts plus piece/dozen/case pricing | Live verified; K500 returned 370 current variants |
+| `getProductInfoByBrand` queues a SanMarPI FTP file instead of returning product rows for CMP's account | Live verified 2026-08-22 |
 | EPDD: quote-encapsulated CSV, full product data | Verified (current guide) |
 | DIP: `sanmar_dip.txt`, pipe-delimited, hourly inventory + pricing | Verified |
 | DIP identity: `inventory_key + size_index = unique_key` | Verified |
-| EPDD canonical fields: `UNIQUE_KEY`, `PRODUCT_TITLE`, `PRODUCT_DESCRIPTION`, `STYLE#`, `CATEGORY_NAME`, `COLOR_NAME`, `SIZE`, `PIECE_PRICE`, `CASE_PRICE`, `INVENTORY_KEY`, `SIZE_INDEX`, `MILL`, `PRODUCT_STATUS`, `PRODUCT_IMAGE` | Verified |
-| DIP official fields: `Inventory_Key`, `Size_Index`, `Catalog_No`, `Catalog_Color`, `Size`, `Whse_No`, `Quantity`, `Piece_Price`, `Dozens_Price`, `Case_Price`, `Case_Size`, `Each_sale_Price`, `Sale_start_datetime`, `Sale_end_datetime`, `Unique_key`, `Discontinued_code` | Verified |
 | Secure transport is SFTP/SSH at `ftp.sanmar.com:2200`; FTPS/TLS is unsupported | Verified |
+| SanMar SFTP offers legacy `ssh-rsa`/`ssh-dss` host keys; modern clients require explicit `ssh-rsa` compatibility plus fingerprint pinning | Live verified 2026-08-22 |
+| CMP web-service credentials do not authenticate to SFTP; separate file-delivery credentials are required | Live verified 2026-08-22 |
+| Updated FTP guide: SFTP username is the SanMar customer number; password arrives by secure one-time link after agreement/onboarding | Verified from v23.2 guide |
+| CMP's 2025 Integration Agreement remained unsigned through the last October reminder; no onboarding-complete/credential email exists | Verified in Gmail 2026-08-22 |
+| Nightly `SanMar_EPDD.csv` completes by 6 a.m. Pacific; `sanmar_dip.txt` updates hourly with displayed inventory capped at 1,500 per warehouse | Verified from v23.2 guide |
+| Optional `sanmar_dp.csv` contains the full catalog's lowest `my_price`; `sanmar_dpc.csv` contains daily changed-price deltas | Verified from v23.2 guide |
+
+**SOAP refresh strategy:**
+- Bootstrap from every active CMP SanMar style ID and the oldest active
+  `source_sync_at`; an approved snapshot/local seed is required before live sync.
+- Discover changed/new IDs with PromoStandards `getProductDateModified`.
+- The current adapter can build a complete shadow/replacement version by fetching
+  every bootstrap + changed style with a style-only Product Information call.
+  SanMar documents this as the next-best full-catalog option after FTP, but warns
+  against thousands of standard-service requests daily. Keep this mode explicit
+  and manual/monthly until file access or clone-and-patch deltas are implemented.
+- The preferred scheduled path is nightly EPDD plus hourly DIP over SFTP. An
+  acceptable SOAP daily path must clone the active immutable version and replace
+  only modified/new/explicitly removed styles before whole-version validation.
+- Pace requests, reject DTD/entity declarations, parse namespace-aware XML,
+  bound response size/time/retries, and fail closed on faults, vendor errors,
+  malformed/unpriced rows, conflicting duplicates, or broad count drops.
+- SanMar inventory remains unknown in SOAP catalog rows, matching the current
+  validated snapshot. Add inventory through SFTP EPDD/DIP or targeted inventory
+  requests; never fabricate zero inventory.
+
+**Live full-catalog shadow probe (2026-08-22/23):**
+- Ran against isolated Railway database `cmp_catalog_probe`; production was not touched.
+- Requested 4,184 bootstrap/modified style IDs over 78 minutes with paced sequential calls.
+- Activated 3,949 styles and 157,321 variants; 742 modified/new IDs were discovered and 235 styles were confirmed unavailable through the exact PromoStandards code-130 path.
+- Verification: 0 source errors, 0 skipped rows, 0 orphans, 0 invalid costs, 0 populated/fabricated inventory values, and 0 null source timestamps. K500 contained 370 variants; removed style 2700 was absent.
+- This probe started before the final namespace/watermark/limit hardening landed. It proves live source coverage and database activation behavior; the final hardening is covered by the complete automated suite and direct adversarial parser probes.
 
 **Deferred:**
-- **Secure file delivery implementation**: Phase 1 parses local pre-delivered
-  files only. SFTP/SSH transport for `ftp.sanmar.com:2200` remains to be built;
-  FTPS/TLS should not be attempted.
-- DIP sale date format and timezone semantics
-- File delivery cadence guarantees
+- Complete/sign the SanMar Integration Agreement, have SanMar finish FTP
+  onboarding, and retrieve the separate password from the secure one-time link;
+  then implement fingerprint-pinned SFTP as the preferred scheduled transport.
+- DIP sale date format and timezone semantics.
+- File delivery cadence guarantees.
 
 ## Environment Variables
 
@@ -139,6 +175,10 @@ Mapping choices:
 |----------|---------|---------|
 | `CMP_SS_ACCOUNT_NUMBER` | S&S Basic auth username | Worker only |
 | `CMP_SS_API_KEY` | S&S Basic auth password | Worker only |
+| `CMP_SANMAR_SOURCE` | Required: `soap` or `local` | Worker only |
+| `CMP_SANMAR_CUSTOMER_NUMBER` | SanMar web-service customer number | Worker only |
+| `CMP_SANMAR_USERNAME` | SanMar web-service username | Worker only |
+| `CMP_SANMAR_PASSWORD` | SanMar web-service password | Worker only |
 | `CMP_SANMAR_EPDD_PATH` | Path to local EPDD CSV file | Worker only |
 | `CMP_SANMAR_DIP_PATH` | Path to local DIP text file | Worker only |
 | `VENDOR_CATALOG_DATABASE_URL` | CMP PostgreSQL target | Worker + runtime |
@@ -154,8 +194,8 @@ New table tracks direct ingestion job lifecycle with:
   starts from scratch. Checkpoints record progress milestones (styles/variants
   staged, phase transitions) for observability and debugging only.
 - Cancel-request flag (cooperative cancellation checked between source batches
-  and DB flushes; aborts S&S fetch retries and SanMar EPDD, DIP, and join row
-  loops promptly with a bounded default check interval)
+  and DB flushes; aborts S&S/SanMar SOAP retries and pacing plus SanMar
+  EPDD, DIP, and join row loops promptly with a bounded default check interval)
 - All job mutations (heartbeat, checkpoint, status) are guarded by job ID +
   lease_owner + non-terminal status + unexpired lease. Mandatory transitions
   fail closed if the owned row is not updated; best-effort checkpoints remain
@@ -171,7 +211,14 @@ DB-enforced constraint: at most one non-terminal job per vendor.
 
 ## SanMar Memory Behavior
 
-The EPDD product index (`Map<UNIQUE_KEY, record>`) is held in memory for the
+SOAP style refreshes process one bounded XML response at a time. The adapter
+retains normalized style and variant identity maps for conflict detection and
+content hashing; it does not retain raw XML across requests. Responses are
+limited to 128 MiB each, requests time out after 120 seconds, and calls are
+paced by 250 ms by default.
+
+The local-file fallback holds the EPDD product index
+(`Map<UNIQUE_KEY, record>`) in memory for the
 DIP join phase and capped at 250,000 unique keys. DIP is read line-by-line, but
 the aggregate map (`Map<Unique_key, inventory/pricing record>`) is also held
 for the join and capped at 250,000 unique keys. Each DIP record stores a capped
@@ -190,9 +237,12 @@ production default.
 ## SanMar Secure Delivery (Deferred)
 
 SanMar documentation identifies SFTP/SSH at `ftp.sanmar.com:2200` as the secure
-delivery path and states FTPS/TLS is unsupported. The current adapter parses
-local pre-delivered files only. Transport is deferred, not impossible; implement
-SFTP/SSH before production direct SanMar refreshes.
+file-delivery path and states FTPS/TLS is unsupported. Live verification found
+only legacy `ssh-rsa`/`ssh-dss` host keys, so production SFTP must explicitly
+enable and pin the verified RSA fingerprint rather than disabling host checks.
+CMP's web-service credentials do not authenticate to SFTP; recover the separate
+file-delivery credentials from SanMar correspondence. SOAP style/delta refreshes
+remain a complete Vendo-independent path while SFTP is deferred.
 
 ## No-Vendo Target State
 

@@ -21,6 +21,10 @@ run `npm rebuild` after switching Node versions).
 | `VENDOR_CATALOG_TEST_DATABASE_URL` | PostgreSQL URL for integration tests (optional, test-only) |
 | `CMP_SS_ACCOUNT_NUMBER` | S&S Basic auth account number (worker/CLI only, never in web runtime) |
 | `CMP_SS_API_KEY` | S&S Basic auth API key (worker/CLI only, never in web runtime) |
+| `CMP_SANMAR_SOURCE` | Required source selector: `soap` or `local` |
+| `CMP_SANMAR_CUSTOMER_NUMBER` | SanMar web-service customer number (worker only) |
+| `CMP_SANMAR_USERNAME` | SanMar web-service username (worker only) |
+| `CMP_SANMAR_PASSWORD` | SanMar web-service password (worker only) |
 | `CMP_SANMAR_EPDD_PATH` | Path to local SanMar EPDD CSV file (worker/CLI only) |
 | `CMP_SANMAR_DIP_PATH` | Path to local SanMar DIP pipe-delimited file (worker/CLI only) |
 | `CMP_ALLOW_LOCAL_MANAGER_MODE` | Set to `true` in non-production to enable manager cost visibility via `x-cmp-role: manager` header |
@@ -67,8 +71,19 @@ PostgreSQL. **Requires an existing active CMP version** (use seed first).
 CMP_SS_ACCOUNT_NUMBER=xxx CMP_SS_API_KEY=yyy \
   npm run catalog:sync -- --vendor ss --target-url "$VENDOR_CATALOG_DATABASE_URL"
 
-# SanMar (local pre-delivered files only — secure transport TBD)
-npm run catalog:sync -- --vendor sanmar \
+# SanMar SOAP manual/shadow full refresh (explicit source; requires an active
+# seeded SanMar catalog). Do not schedule daily: this makes one paced request
+# per active/discovered style. Prefer SFTP or clone-and-patch for daily updates.
+CMP_SANMAR_SOURCE=soap \
+CMP_SANMAR_CUSTOMER_NUMBER=xxx \
+CMP_SANMAR_USERNAME=xxx \
+CMP_SANMAR_PASSWORD=yyy \
+  npm run catalog:sync -- --vendor sanmar --sanmar-source soap \
+  --target-url "$VENDOR_CATALOG_DATABASE_URL"
+
+# SanMar local files (explicit fallback/source)
+CMP_SANMAR_SOURCE=local npm run catalog:sync -- --vendor sanmar \
+  --sanmar-source local \
   --epdd-path data/epdd.csv --dip-path data/sanmar_dip.txt \
   --target-url "$VENDOR_CATALOG_DATABASE_URL"
 ```
@@ -190,10 +205,15 @@ After seeding from SQLite or importing from Vendo, verify:
 - **Auth for manager mode**: The `x-cmp-role` header is unauthenticated. Real
   auth (JWT/session) should replace the header-based manager mode. Until then,
   production always returns staff-safe responses.
-- **SanMar secure file delivery**: SanMar docs identify SFTP/SSH at
-  `ftp.sanmar.com:2200` as the secure transport and state FTPS/TLS is
-  unsupported. Phase 1 of direct ingestion parses local pre-delivered files
-  only; SFTP/SSH transport is deferred, not impossible.
+- **SanMar SFTP onboarding/legacy host key**: SanMar file delivery is
+  `ftp.sanmar.com:2200` and currently offers legacy `ssh-rsa`/`ssh-dss` host
+  keys. Web-service credentials do not authenticate to SFTP. CMP's 2025
+  integration agreement remained unsigned in the Gmail trail, so no secure FTP
+  password link was issued. Complete onboarding, then pin the verified RSA
+  fingerprint before enabling EPDD/DIP transport.
+- **SanMar SOAP volume**: A complete replacement version makes one paced style
+  request per active/discovered style. Prefer SFTP Bulk/Delta once file access
+  is recovered; keep SOAP explicit and monitor duration/vendor errors.
 - **S&S API pagination**: Full `/styles/` response behavior at scale (single
   response vs paged) needs verification with real credentials.
 - **Stale job lease cleanup**: New ingestion attempts reclaim expired

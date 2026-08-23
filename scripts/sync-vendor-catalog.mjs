@@ -3,16 +3,19 @@
  * Direct vendor catalog sync orchestrator.
  *
  * Standalone CLI/worker — no Next.js API route, no Vercel request execution.
- * Supports S&S API mode and SanMar local file mode.
+ * Supports S&S API mode plus SanMar SOAP or local file modes.
  *
  * Usage:
  *   node scripts/sync-vendor-catalog.mjs --vendor ss
  *   node scripts/sync-vendor-catalog.mjs --vendor sanmar \
  *     --epdd-path data/epdd.csv --dip-path data/sanmar_dip.txt
+ *   node scripts/sync-vendor-catalog.mjs --vendor sanmar --sanmar-source soap
  *
  * Environment:
  *   CMP_SS_ACCOUNT_NUMBER, CMP_SS_API_KEY  — S&S credentials (worker only)
- *   CMP_SANMAR_EPDD_PATH, CMP_SANMAR_DIP_PATH — SanMar file paths
+ *   CMP_SANMAR_SOURCE — required: soap or local
+ *   CMP_SANMAR_CUSTOMER_NUMBER, CMP_SANMAR_USERNAME, CMP_SANMAR_PASSWORD — SOAP credentials
+ *   CMP_SANMAR_EPDD_PATH, CMP_SANMAR_DIP_PATH — SanMar local file paths
  *   VENDOR_CATALOG_DATABASE_URL — CMP PostgreSQL target
  */
 
@@ -25,6 +28,7 @@ import {
 } from './lib/postgres-import-helpers.mjs';
 import { createSSSource } from './lib/vendor-sources/ss.mjs';
 import { ingestSanMar } from './lib/vendor-sources/sanmar.mjs';
+import { createSanMarSoapSource } from './lib/vendor-sources/sanmar-soap.mjs';
 import { ErrorCategory, createSourceError, redactErrorSummary } from './lib/vendor-sources/contracts.mjs';
 
 const { Pool } = pg;
@@ -85,10 +89,39 @@ if (isDirectExecution) {
     } else {
       const epddPath = args['epdd-path'] ?? process.env.CMP_SANMAR_EPDD_PATH;
       const dipPath = args['dip-path'] ?? process.env.CMP_SANMAR_DIP_PATH;
-      if (!epddPath || !dipPath) {
-        fail('--epdd-path and --dip-path (or CMP_SANMAR_EPDD_PATH/CMP_SANMAR_DIP_PATH) required for SanMar.');
+      const sanmarSource = args['sanmar-source'] ?? process.env.CMP_SANMAR_SOURCE ??
+        (epddPath && dipPath ? 'local' : null);
+      if (!sanmarSource) {
+        fail('--sanmar-source (or CMP_SANMAR_SOURCE) is required for SanMar and must be soap or local.');
       }
-      sourceConfig = { type: 'sanmar-local', epddPath, dipPath };
+      if (!['soap', 'local'].includes(sanmarSource)) {
+        fail('--sanmar-source (or CMP_SANMAR_SOURCE) must be soap or local.');
+      }
+      if (sanmarSource === 'local') {
+        if (!epddPath || !dipPath) {
+          fail('--epdd-path and --dip-path (or CMP_SANMAR_EPDD_PATH/CMP_SANMAR_DIP_PATH) required for SanMar local mode.');
+        }
+        sourceConfig = { type: 'sanmar-local', epddPath, dipPath };
+      } else {
+        const customerNumber = process.env.CMP_SANMAR_CUSTOMER_NUMBER;
+        const username = process.env.CMP_SANMAR_USERNAME;
+        const password = process.env.CMP_SANMAR_PASSWORD;
+        if (!customerNumber || !username || !password) {
+          fail('CMP_SANMAR_CUSTOMER_NUMBER, CMP_SANMAR_USERNAME, and CMP_SANMAR_PASSWORD are required for SanMar SOAP.');
+        }
+        const bootstrap = await getSanMarSoapBootstrap(target);
+        if (bootstrap.styleIds.length === 0 || !bootstrap.since) {
+          fail('SanMar SOAP requires an active CMP SanMar catalog with source timestamps; seed local EPDD/DIP or the approved snapshot first.');
+        }
+        sourceConfig = {
+          type: 'sanmar-soap',
+          customerNumber,
+          username,
+          password,
+          styleIds: bootstrap.styleIds,
+          since: bootstrap.since,
+        };
+      }
     }
 
     const result = await runIngestion({
@@ -109,6 +142,25 @@ if (isDirectExecution) {
 }
 
 // --- Core orchestration (exported for testing) ---
+
+export async function getSanMarSoapBootstrap(target) {
+  const { rows } = await target.query(
+    `SELECT source_style_id, source_sync_at
+     FROM active_catalog_styles
+     WHERE vendor = 'sanmar'
+     ORDER BY source_style_id`
+  );
+  let since = null;
+  const styleIds = [];
+  for (const row of rows) {
+    if (row.source_style_id) styleIds.push(String(row.source_style_id));
+    if (row.source_sync_at) {
+      const timestamp = new Date(row.source_sync_at);
+      if (!Number.isNaN(timestamp.getTime()) && (!since || timestamp < since)) since = timestamp;
+    }
+  }
+  return { styleIds, since: since?.toISOString() ?? null };
+}
 
 /**
  * Run a full vendor ingestion cycle with job tracking.
@@ -387,6 +439,18 @@ async function ingestVendor({
       signal,
     });
     manifest = await ssSource.ingest({ onStyle, onVariant, shouldContinue });
+  } else if (sourceConfig.type === 'sanmar-soap') {
+    const sanmarSource = createSanMarSoapSource({
+      customerNumber: sourceConfig.customerNumber,
+      username: sourceConfig.username,
+      password: sourceConfig.password,
+      styleIds: sourceConfig.styleIds,
+      since: sourceConfig.since,
+      fetch: fetchFn,
+      sleep: sleepFn,
+      signal,
+    });
+    manifest = await sanmarSource.ingest({ onStyle, onVariant, shouldContinue });
   } else {
     manifest = await ingestSanMar({
       epddSource: sourceConfig.epddPath,
@@ -406,6 +470,21 @@ async function ingestVendor({
   // Flush remaining batches
   await flushStyles();
   await flushVariants();
+
+  const sourceSyncAt = manifest.snapshotTimestamp
+    ? new Date(manifest.snapshotTimestamp)
+    : new Date();
+  if (Number.isNaN(sourceSyncAt.getTime())) {
+    throw createSourceError(ErrorCategory.VALIDATION, `${vendor} manifest has an invalid snapshot timestamp`);
+  }
+  await target.query(
+    `UPDATE catalog_styles SET source_sync_at = $2 WHERE import_id = $1`,
+    [importId, sourceSyncAt]
+  );
+  await target.query(
+    `UPDATE catalog_variants SET source_sync_at = $2 WHERE import_id = $1`,
+    [importId, sourceSyncAt]
+  );
 
   if (shouldContinue && !(await shouldContinue())) {
     throw await createLeaseError('Job canceled or lease lost before active variant count update', target, jobId, owner);
