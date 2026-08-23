@@ -162,6 +162,30 @@ Mapping choices:
 - Verification: 0 source errors, 0 skipped rows, 0 orphans, 0 invalid costs, 0 populated/fabricated inventory values, and 0 null source timestamps. K500 contained 370 variants; removed style 2700 was absent.
 - This probe started before the final namespace/watermark/limit hardening landed. It proves live source coverage and database activation behavior; the final hardening is covered by the complete automated suite and direct adversarial parser probes.
 
+**Delta mode (`--sanmar-mode delta`):**
+- Clones the active SanMar import in PostgreSQL using `INSERT...SELECT` — no
+  JS materialization of 150k+ rows.
+- Discovers changed/new style IDs using PromoStandards `getProductDateModified`
+  from the active catalog's oldest `source_sync_at` watermark.
+- Fetches ONLY discovered IDs (not all 4k+ bootstrap styles). For a typical
+  daily run discovering ~15 styles, this takes seconds instead of 78+ minutes.
+- For each discovered style: deletes the cloned style/variants, then inserts
+  current data from SOAP. If exact PromoStandards code-130 confirmation says
+  "Product Id not found", the style stays deleted. Ambiguous errors reject
+  the entire import.
+- Unchanged rows preserve their original `source_sync_at` timestamps.
+- Final counts are based on the complete cloned replacement (not just changed
+  rows). Existing count-drop safeguards still apply.
+- Activation is atomic and conditional on the active pointer still matching the
+  cloned base import (pointer-drift rejection). Another concurrent activation
+  causes the delta to fail closed.
+- On failure, the active pointer is untouched and staged data is cleaned.
+- Prerequisites: an active SanMar catalog with source timestamps. Delta mode
+  will not bootstrap from scratch — use `--sanmar-source soap` (full mode) or
+  local EPDD/DIP for initial seeding.
+- Usage: `node scripts/sync-vendor-catalog.mjs --vendor sanmar --sanmar-source soap --sanmar-mode delta`
+- Scheduling and Railway deployment remain deferred.
+
 **Deferred:**
 - Complete/sign the SanMar Integration Agreement, have SanMar finish FTP
   onboarding, and retrieve the separate password from the secure one-time link;
@@ -176,6 +200,7 @@ Mapping choices:
 | `CMP_SS_ACCOUNT_NUMBER` | S&S Basic auth username | Worker only |
 | `CMP_SS_API_KEY` | S&S Basic auth password | Worker only |
 | `CMP_SANMAR_SOURCE` | Required: `soap` or `local` | Worker only |
+| `CMP_SANMAR_MODE` | Optional: `full` (default) or `delta` | Worker only |
 | `CMP_SANMAR_CUSTOMER_NUMBER` | SanMar web-service customer number | Worker only |
 | `CMP_SANMAR_USERNAME` | SanMar web-service username | Worker only |
 | `CMP_SANMAR_PASSWORD` | SanMar web-service password | Worker only |

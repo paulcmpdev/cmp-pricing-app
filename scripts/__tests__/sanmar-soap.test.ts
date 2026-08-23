@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createSanMarSoapSource,
+  createSanMarDeltaSource,
   parseSanMarDateModifiedResponse,
   parseSanMarProductInfoResponse,
   parseSanMarProductLookupResponse,
@@ -347,7 +348,22 @@ describe('SanMar SOAP product adapter', () => {
       styleIds: ['EMPTY'], fetch: vi.fn().mockResolvedValue(response(empty)), sleep: vi.fn(), requestDelayMs: 0,
     });
     await expect(source.ingest({ onStyle: () => {}, onVariant: () => {} }))
-      .rejects.toThrow(/all requested styles returned zero products/i);
+      .rejects.toThrow(/successful but empty|code-130 confirmation/i);
+  });
+
+  it('rejects a full rebuild when one style has an ambiguous successful-empty response', async () => {
+    const empty = PRODUCT_RESPONSE.replace(/<listResponse>[\s\S]*<\/listResponse>/, '');
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, options: RequestInit) => {
+      const body = String(options.body ?? '');
+      return response(body.includes('<style>EMPTY</style>') ? empty : PRODUCT_RESPONSE);
+    });
+    const source = createSanMarSoapSource({
+      customerNumber: 'customer', username: 'user', password: 'password',
+      styleIds: ['K500', 'EMPTY'], fetch: fetchMock, sleep: vi.fn(), requestDelayMs: 0,
+    });
+
+    await expect(source.ingest({ onStyle: () => {}, onVariant: () => {} }))
+      .rejects.toThrow(/successful but empty|code-130 confirmation/i);
   });
 
   it('rejects duplicate variant IDs with conflicting identities', () => {
@@ -389,5 +405,149 @@ describe('SanMar SOAP product adapter', () => {
     await expect(source.fetchStyle('2700')).resolves.toMatchObject({ styles: [], variants: [] });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1][1].headers.SOAPAction).toBe('getProduct');
+  });
+});
+
+describe('SanMar delta source', () => {
+  it('requires a valid since watermark', () => {
+    expect(() => createSanMarDeltaSource({
+      customerNumber: 'customer', username: 'user', password: 'password',
+      since: null,
+    })).toThrow(/requires a valid since watermark/i);
+  });
+
+  it('discovers only modified style IDs (does not fetch all bootstrap styles)', async () => {
+    const discoveryXml = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><ns2:GetProductDateModifiedResponse xmlns:ns2="http://www.promostandards.org/WSDL/ProductDataService/2.0.0/"><ProductDateModifiedArray><ProductDateModified><productId>K500</productId><partId>1</partId></ProductDateModified></ProductDateModifiedArray></ns2:GetProductDateModifiedResponse></S:Body></S:Envelope>`;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(discoveryXml))
+      .mockResolvedValueOnce(response(PRODUCT_RESPONSE));
+
+    const source = createSanMarDeltaSource({
+      customerNumber: 'customer', username: 'user', password: 'password',
+      since: '2026-08-22T00:00:00.000Z', fetch: fetchMock, sleep: vi.fn(),
+      requestDelayMs: 0,
+    });
+
+    const result = await source.discover();
+
+    // Only 2 requests: discovery + K500 fetch (NOT 3950 bootstrap styles)
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.modifiedStyleIds).toEqual(['K500']);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].action).toBe('replace');
+    expect(result.results[0].styles).toHaveLength(1);
+    expect(result.results[0].variants).toHaveLength(2);
+    expect(result.snapshotTimestamp).toBeDefined();
+  });
+
+  it('marks confirmed-unavailable styles as remove action', async () => {
+    const discoveryXml = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><ns2:GetProductDateModifiedResponse xmlns:ns2="http://www.promostandards.org/WSDL/ProductDataService/2.0.0/"><ProductDateModifiedArray><ProductDateModified><productId>2700</productId><partId>1</partId></ProductDateModified></ProductDateModifiedArray></ns2:GetProductDateModifiedResponse></S:Body></S:Envelope>`;
+    const productError = PRODUCT_RESPONSE
+      .replace('<errorOccured>false</errorOccured>', '<errorOccured>true</errorOccured>')
+      .replace(/<listResponse>[\s\S]*<\/listResponse>/, '')
+      .replace('Product Info sent successfully.', 'ERROR: Internal error occurred.');
+    const notFound = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><ns2:GetProductResponse xmlns:ns2="http://www.promostandards.org/WSDL/ProductDataService/2.0.0/"><ServiceMessageArray><ServiceMessage><code>130</code><description>Product Id not found</description><severity>Error</severity></ServiceMessage></ServiceMessageArray></ns2:GetProductResponse></S:Body></S:Envelope>`;
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(discoveryXml))
+      .mockResolvedValueOnce(response(productError))
+      .mockResolvedValueOnce(response(notFound));
+
+    const source = createSanMarDeltaSource({
+      customerNumber: 'customer', username: 'user', password: 'password',
+      since: '2026-08-22T00:00:00.000Z', fetch: fetchMock, sleep: vi.fn(),
+      requestDelayMs: 0,
+    });
+
+    const result = await source.discover();
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].action).toBe('remove');
+    expect(result.results[0].styleId).toBe('2700');
+    expect(result.excludedStyleCount).toBe(1);
+  });
+
+  it('returns empty results when no styles are modified', async () => {
+    const emptyDiscovery = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><ns2:GetProductDateModifiedResponse xmlns:ns2="http://www.promostandards.org/WSDL/ProductDataService/2.0.0/"><ProductDateModifiedArray/></ns2:GetProductDateModifiedResponse></S:Body></S:Envelope>`;
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(emptyDiscovery));
+
+    const source = createSanMarDeltaSource({
+      customerNumber: 'customer', username: 'user', password: 'password',
+      since: '2026-08-22T00:00:00.000Z', fetch: fetchMock, sleep: vi.fn(),
+      requestDelayMs: 0,
+    });
+
+    const result = await source.discover();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // Only discovery call
+    expect(result.modifiedStyleIds).toHaveLength(0);
+    expect(result.results).toHaveLength(0);
+    expect(result.requestCount).toBe(0);
+  });
+
+  it('fails closed when an ambiguous error occurs (not code-130)', async () => {
+    const discoveryXml = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><ns2:GetProductDateModifiedResponse xmlns:ns2="http://www.promostandards.org/WSDL/ProductDataService/2.0.0/"><ProductDateModifiedArray><ProductDateModified><productId>K500</productId><partId>1</partId></ProductDateModified></ProductDateModifiedArray></ns2:GetProductDateModifiedResponse></S:Body></S:Envelope>`;
+    const faultResponse = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><S:Fault><faultcode>S:Server</faultcode><faultstring>Internal service failure</faultstring></S:Fault></S:Body></S:Envelope>`;
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(discoveryXml))
+      .mockResolvedValue(response(faultResponse)); // all retries fail
+
+    const source = createSanMarDeltaSource({
+      customerNumber: 'customer', username: 'user', password: 'password',
+      since: '2026-08-22T00:00:00.000Z', fetch: fetchMock, sleep: vi.fn(),
+      requestDelayMs: 0,
+    });
+
+    await expect(source.discover()).rejects.toThrow(/SOAP fault/i);
+  });
+
+  it('rejects duplicate variant IDs with conflicting identities within a discovered style', async () => {
+    const discoveryXml = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><ns2:GetProductDateModifiedResponse xmlns:ns2="http://www.promostandards.org/WSDL/ProductDataService/2.0.0/"><ProductDateModifiedArray><ProductDateModified><productId>K500</productId><partId>1</partId></ProductDateModified></ProductDateModifiedArray></ns2:GetProductDateModifiedResponse></S:Body></S:Envelope>`;
+    const conflict = PRODUCT_RESPONSE
+      .replace('<uniqueKey>208284</uniqueKey>', '<uniqueKey>208283</uniqueKey>')
+      .replace('<size>L</size>', '<size>XL</size>');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(discoveryXml))
+      .mockResolvedValueOnce(response(conflict));
+
+    const source = createSanMarDeltaSource({
+      customerNumber: 'customer', username: 'user', password: 'password',
+      since: '2026-08-22T00:00:00.000Z', fetch: fetchMock, sleep: vi.fn(),
+      requestDelayMs: 0,
+    });
+
+    await expect(source.discover()).rejects.toThrow(/duplicate.*conflicting/i);
+  });
+
+  it('rejects success-empty Product Info response instead of marking as removal', async () => {
+    // A success-empty response (errorOccured=false, no listResponse) is ambiguous.
+    // Only the Product Data code-130 path may authorize deletion.
+    const discoveryXml = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><ns2:GetProductDateModifiedResponse xmlns:ns2="http://www.promostandards.org/WSDL/ProductDataService/2.0.0/"><ProductDateModifiedArray><ProductDateModified><productId>K500</productId><partId>1</partId></ProductDateModified></ProductDateModifiedArray></ns2:GetProductDateModifiedResponse></S:Body></S:Envelope>`;
+    // This response has errorOccured=false but no listResponse at all
+    const successEmptyResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">
+  <S:Body>
+    <ns2:getProductInfoByStyleColorSizeResponse xmlns:ns2="http://impl.webservice.integration.sanmar.com/">
+      <return>
+        <errorOccured>false</errorOccured>
+        <message>No products found.</message>
+      </return>
+    </ns2:getProductInfoByStyleColorSizeResponse>
+  </S:Body>
+</S:Envelope>`;
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(discoveryXml))
+      .mockResolvedValueOnce(response(successEmptyResponse));
+
+    const source = createSanMarDeltaSource({
+      customerNumber: 'customer', username: 'user', password: 'password',
+      since: '2026-08-22T00:00:00.000Z', fetch: fetchMock, sleep: vi.fn(),
+      requestDelayMs: 0,
+    });
+
+    // Must reject — a success-empty must NOT silently produce a 'remove' action
+    await expect(source.discover()).rejects.toThrow(/success.*empty|ambiguous|zero.*product/i);
   });
 });

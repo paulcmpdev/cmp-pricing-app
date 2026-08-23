@@ -15,6 +15,22 @@ jobs:
     name: Unit, Type, Lint, Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      VENDOR_CATALOG_TEST_DATABASE_URL: postgresql://cmp_test:cmp_test@127.0.0.1:5432/cmp_catalog_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cmp_test
+          POSTGRES_PASSWORD: cmp_test
+          POSTGRES_DB: cmp_catalog_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmp_test -d cmp_catalog_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4

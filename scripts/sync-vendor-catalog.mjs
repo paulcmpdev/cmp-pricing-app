@@ -10,6 +10,7 @@
  *   node scripts/sync-vendor-catalog.mjs --vendor sanmar \
  *     --epdd-path data/epdd.csv --dip-path data/sanmar_dip.txt
  *   node scripts/sync-vendor-catalog.mjs --vendor sanmar --sanmar-source soap
+ *   node scripts/sync-vendor-catalog.mjs --vendor sanmar --sanmar-source soap --sanmar-mode delta
  *
  * Environment:
  *   CMP_SS_ACCOUNT_NUMBER, CMP_SS_API_KEY  — S&S credentials (worker only)
@@ -28,8 +29,16 @@ import {
 } from './lib/postgres-import-helpers.mjs';
 import { createSSSource } from './lib/vendor-sources/ss.mjs';
 import { ingestSanMar } from './lib/vendor-sources/sanmar.mjs';
-import { createSanMarSoapSource } from './lib/vendor-sources/sanmar-soap.mjs';
+import { createSanMarSoapSource, createSanMarDeltaSource } from './lib/vendor-sources/sanmar-soap.mjs';
 import { ErrorCategory, createSourceError, redactErrorSummary } from './lib/vendor-sources/contracts.mjs';
+import {
+  cloneActiveImport,
+  patchClonedStyles,
+  recalculateActiveVariantCounts,
+  computeCloneContentHash,
+  captureActiveImportSnapshot,
+  activateDeltaImport,
+} from './lib/delta-clone.mjs';
 
 const { Pool } = pg;
 
@@ -103,34 +112,65 @@ if (isDirectExecution) {
         }
         sourceConfig = { type: 'sanmar-local', epddPath, dipPath };
       } else {
+        const sanmarMode = args['sanmar-mode'] ?? process.env.CMP_SANMAR_MODE ?? 'full';
+        if (!['full', 'delta'].includes(sanmarMode)) {
+          fail('--sanmar-mode must be full or delta.');
+        }
         const customerNumber = process.env.CMP_SANMAR_CUSTOMER_NUMBER;
         const username = process.env.CMP_SANMAR_USERNAME;
         const password = process.env.CMP_SANMAR_PASSWORD;
         if (!customerNumber || !username || !password) {
           fail('CMP_SANMAR_CUSTOMER_NUMBER, CMP_SANMAR_USERNAME, and CMP_SANMAR_PASSWORD are required for SanMar SOAP.');
         }
-        const bootstrap = await getSanMarSoapBootstrap(target);
-        if (bootstrap.styleIds.length === 0 || !bootstrap.since) {
-          fail('SanMar SOAP requires an active CMP SanMar catalog with source timestamps; seed local EPDD/DIP or the approved snapshot first.');
+
+        if (sanmarMode === 'delta') {
+          const snapshot = await captureActiveImportSnapshot(target, 'sanmar');
+          if (!snapshot) {
+            fail('SanMar delta mode requires an active CMP SanMar catalog with source timestamps.');
+          }
+          sourceConfig = {
+            type: 'sanmar-soap-delta',
+            customerNumber,
+            username,
+            password,
+            baseImportId: snapshot.importId,
+            since: snapshot.watermark,
+          };
+        } else {
+          const bootstrap = await getSanMarSoapBootstrap(target);
+          if (bootstrap.styleIds.length === 0 || !bootstrap.since) {
+            fail('SanMar SOAP requires an active CMP SanMar catalog with source timestamps; seed local EPDD/DIP or the approved snapshot first.');
+          }
+          sourceConfig = {
+            type: 'sanmar-soap',
+            customerNumber,
+            username,
+            password,
+            styleIds: bootstrap.styleIds,
+            since: bootstrap.since,
+          };
         }
-        sourceConfig = {
-          type: 'sanmar-soap',
-          customerNumber,
-          username,
-          password,
-          styleIds: bootstrap.styleIds,
-          since: bootstrap.since,
-        };
       }
     }
 
-    const result = await runIngestion({
-      vendor,
-      target,
-      sourceConfig,
-      batchSize,
-      signal: controller.signal,
-    });
+    let result;
+    if (sourceConfig.type === 'sanmar-soap-delta') {
+      result = await runDeltaIngestion({
+        vendor,
+        target,
+        sourceConfig,
+        batchSize,
+        signal: controller.signal,
+      });
+    } else {
+      result = await runIngestion({
+        vendor,
+        target,
+        sourceConfig,
+        batchSize,
+        signal: controller.signal,
+      });
+    }
 
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {
@@ -517,6 +557,364 @@ export function assertManifestCompleteForActivation(manifest) {
     throw new Error(
       `${manifest.vendor} manifest incomplete: ${Number(manifest.sourceErrors ?? 0)} source error(s); refusing activation.${reasons}`
     );
+  }
+}
+
+// --- Delta ingestion orchestration ---
+
+/**
+ * Run a delta vendor ingestion cycle: clone active -> discover -> patch -> validate -> activate.
+ *
+ * @param {Object} options - Same shape as runIngestion plus delta-specific fields
+ * @returns {Promise<Object>} Ingestion result
+ */
+export async function runDeltaIngestion({
+  vendor,
+  target,
+  sourceConfig,
+  batchSize = DEFAULT_BATCH_SIZE,
+  signal,
+  fetch: fetchFn,
+  sleep: sleepFn,
+  leaseOwner,
+  checkIntervalRows = DEFAULT_CHECK_INTERVAL_ROWS,
+  testHooks,
+}) {
+  if (sourceConfig.type !== 'sanmar-soap-delta') {
+    throw new Error('runDeltaIngestion only supports sanmar-soap-delta source type');
+  }
+  if (vendor !== 'sanmar') {
+    throw new Error('Delta mode is only supported for sanmar');
+  }
+
+  const jobId = randomUUID();
+  const importId = randomUUID();
+  const owner = leaseOwner ?? `worker-${process.pid}-${Date.now()}`;
+  let heartbeatTimer = null;
+
+  await acquireJobLease(target, jobId, vendor, owner);
+
+  try {
+    heartbeatTimer = startHeartbeat(target, jobId, owner);
+
+    const shouldContinue = async () => {
+      if (signal?.aborted) return false;
+      return await hasOwnedActiveLease(target, jobId, owner);
+    };
+
+    // Phase 1: Clone active import
+    await guardedJobUpdate(target,
+      `UPDATE catalog_ingestion_jobs
+       SET started_at = CURRENT_TIMESTAMP, status = 'running',
+           checkpoint = $2::jsonb
+       WHERE id = $1`,
+      [jobId, JSON.stringify({ phase: 'cloning' })],
+      jobId, owner
+    );
+
+    const cloneResult = await cloneActiveImport(target, {
+      vendor,
+      newImportId: importId,
+      baseImportId: sourceConfig.baseImportId,
+      jobId,
+      leaseOwner: owner,
+    });
+
+    await guardedJobUpdate(target,
+      `UPDATE catalog_ingestion_jobs
+       SET checkpoint = $2::jsonb
+       WHERE id = $1`,
+      [jobId, JSON.stringify({
+        phase: 'cloned',
+        baseImportId: cloneResult.baseImportId,
+        clonedStyles: cloneResult.clonedStyleCount,
+        clonedVariants: cloneResult.clonedVariantCount,
+      })],
+      jobId, owner
+    );
+
+    if (!(await shouldContinue())) {
+      throw await createLeaseError('Job canceled or lease lost after cloning', target, jobId, owner);
+    }
+
+    // Phase 2: Discover changed/new style IDs and fetch them
+    const deltaSource = createSanMarDeltaSource({
+      customerNumber: sourceConfig.customerNumber,
+      username: sourceConfig.username,
+      password: sourceConfig.password,
+      since: sourceConfig.since,
+      fetch: fetchFn,
+      sleep: sleepFn,
+      signal,
+    });
+
+    const discovery = await deltaSource.discover({ shouldContinue });
+
+    await guardedJobUpdate(target,
+      `UPDATE catalog_ingestion_jobs SET checkpoint = $2::jsonb WHERE id = $1`,
+      [jobId, JSON.stringify({
+        phase: 'discovered',
+        modifiedStyleCount: discovery.modifiedStyleIds.length,
+        requestCount: discovery.requestCount,
+        excludedStyleCount: discovery.excludedStyleCount,
+      })],
+      jobId, owner
+    ).catch(() => {}); // best-effort checkpoint
+
+    if (!(await shouldContinue())) {
+      throw await createLeaseError('Job canceled or lease lost after discovery', target, jobId, owner);
+    }
+
+    // Phase 3: Patch the clone — delete cloned data for discovered styles, insert fresh data
+    let patchedStyleCount = 0;
+    let patchedVariantCount = 0;
+    const patchedStyleIds = [];
+    const removedStyleIds = [];
+
+    if (discovery.results.length > 0) {
+      const patchClient = await target.connect();
+      try {
+        await patchClient.query('BEGIN');
+        const patchShouldContinue = async () => {
+          if (signal?.aborted) return false;
+          return await hasOwnedActiveLease(patchClient, jobId, owner);
+        };
+
+        if (!(await patchShouldContinue())) {
+          throw await createLeaseError('Job canceled or lease lost before patching', patchClient, jobId, owner);
+        }
+
+        // Delete all discovered styles from the clone inside the same transaction
+        // that inserts their replacements. Any failure rolls the complete patch back.
+        const allDiscoveredIds = discovery.results.map((result) => result.styleId);
+        await patchClonedStyles(patchClient, {
+          importId,
+          vendor,
+          styleIds: allDiscoveredIds,
+        });
+
+        // Insert fresh data for replace actions.
+        for (const result of discovery.results) {
+          if (!(await patchShouldContinue())) {
+            throw await createLeaseError(
+              `Job canceled or lease lost while patching style ${result.styleId}`,
+              patchClient,
+              jobId,
+              owner
+            );
+          }
+          if (testHooks?.beforeDeltaStyleInsert) {
+            await testHooks.beforeDeltaStyleInsert({ jobId, owner, importId, styleId: result.styleId });
+          }
+          if (result.action === 'remove') {
+            removedStyleIds.push(result.styleId);
+            continue;
+          }
+
+          for (const style of result.styles) {
+            const id = `${vendor}:${style.sourceStyleId}`;
+            const styleBatch = [{
+              import_id: importId,
+              id,
+              vendor,
+              source_style_id: style.sourceStyleId,
+              style_code: style.styleCode,
+              brand: style.brand ?? null,
+              name: style.name ?? null,
+              category: style.category ?? null,
+              description: style.description ?? null,
+              image_url: style.imageUrl ?? null,
+              active_variant_count: 0,
+              source_sync_at: null,
+            }];
+            const stmt = buildParameterizedInsert({ table: 'catalog_styles', columns: STYLE_COLUMNS, rows: styleBatch });
+            await patchClient.query(stmt.text, stmt.values);
+            patchedStyleCount++;
+            patchedStyleIds.push(style.sourceStyleId);
+          }
+
+          for (const variant of result.variants) {
+            const id = `${vendor}:${variant.sourceVariantId}`;
+            const styleId = `${vendor}:${variant.sourceStyleId}`;
+            const variantBatch = [{
+              import_id: importId,
+              id,
+              style_id: styleId,
+              vendor,
+              source_variant_id: variant.sourceVariantId,
+              style_code: variant.styleCode,
+              color: variant.color ?? null,
+              size: variant.size ?? null,
+              size_order: variant.sizeOrder ?? null,
+              inventory_qty: variant.inventoryQty ?? null,
+              image_url: variant.imageUrl ?? null,
+              discontinued: variant.discontinued ?? false,
+              piece_price: variant.piecePrice ?? null,
+              dozen_price: variant.dozenPrice ?? null,
+              case_price: variant.casePrice ?? null,
+              sale_price: variant.salePrice ?? null,
+              customer_price: variant.customerPrice ?? null,
+              resolved_cost: variant.resolvedCost,
+              cost_basis: variant.costBasis,
+              source_sync_at: null,
+            }];
+            const stmt = buildParameterizedInsert({ table: 'catalog_variants', columns: VARIANT_COLUMNS, rows: variantBatch });
+            await patchClient.query(stmt.text, stmt.values);
+            patchedVariantCount++;
+          }
+        }
+
+        // Set source_sync_at on patched rows. Unchanged cloned rows preserve their
+        // prior timestamps, while replaced rows receive the pre-discovery watermark.
+        if (patchedStyleIds.length > 0) {
+          const sourceSyncAt = discovery.snapshotTimestamp
+            ? new Date(discovery.snapshotTimestamp)
+            : new Date();
+          if (Number.isNaN(sourceSyncAt.getTime())) {
+            throw createSourceError(ErrorCategory.VALIDATION, 'Delta manifest has an invalid snapshot timestamp');
+          }
+          const placeholders = patchedStyleIds.map((_, index) => `$${index + 3}`).join(', ');
+          await patchClient.query(
+            `UPDATE catalog_styles SET source_sync_at = $2
+             WHERE import_id = $1 AND source_style_id IN (${placeholders})`,
+            [importId, sourceSyncAt, ...patchedStyleIds]
+          );
+          await patchClient.query(
+            `UPDATE catalog_variants SET source_sync_at = $2
+             WHERE import_id = $1 AND style_code IN (${placeholders})`,
+            [importId, sourceSyncAt, ...patchedStyleIds]
+          );
+        }
+
+        if (!(await patchShouldContinue())) {
+          throw await createLeaseError('Job canceled or lease lost before patch commit', patchClient, jobId, owner);
+        }
+        await patchClient.query('COMMIT');
+      } catch (error) {
+        await patchClient.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        patchClient.release();
+      }
+    }
+
+    if (!(await shouldContinue())) {
+      throw await createLeaseError('Job canceled or lease lost after patching', target, jobId, owner);
+    }
+
+    // Phase 4: Recalculate counts and compute content hash
+    await recalculateActiveVariantCounts(target, importId);
+
+    // Count the COMPLETE cloned+patched catalog
+    const finalCounts = await target.query(
+      `SELECT
+         (SELECT count(*)::int FROM catalog_styles WHERE import_id = $1) AS style_count,
+         (SELECT count(*)::int FROM catalog_variants WHERE import_id = $1) AS variant_count`,
+      [importId]
+    );
+    const styleCount = finalCounts.rows[0].style_count;
+    const variantCount = finalCounts.rows[0].variant_count;
+
+    const contentHash = await computeCloneContentHash(target, importId);
+
+    const manifest = {
+      vendor,
+      styleCount,
+      variantCount,
+      skippedCount: 0,
+      sourceErrors: 0,
+      complete: true,
+      contentHash,
+      source: 'sanmar-soap-delta',
+      snapshotTimestamp: discovery.snapshotTimestamp,
+      baseImportId: cloneResult.baseImportId,
+      clonedStyleCount: cloneResult.clonedStyleCount,
+      clonedVariantCount: cloneResult.clonedVariantCount,
+      modifiedStyleCount: discovery.modifiedStyleIds.length,
+      patchedStyleCount,
+      patchedVariantCount,
+      removedStyleCount: removedStyleIds.length,
+      removedStyleSamples: removedStyleIds.slice(0, 25),
+      requestCount: discovery.requestCount,
+      excludedStyleCount: discovery.excludedStyleCount,
+      reasons: [],
+    };
+
+    // Validate counts
+    const previous = await getActiveCounts(target, vendor);
+    assertSafeCatalogCounts({
+      vendor,
+      styleCount,
+      variantCount,
+      previousStyleCount: previous?.style_count ?? null,
+      previousVariantCount: previous?.variant_count ?? null,
+    });
+
+    // Update import to validating
+    await target.query(
+      `UPDATE catalog_imports
+       SET status = 'validating', style_count = $2, variant_count = $3,
+           invalid_price_count = $4, content_hash = $5,
+           source_completed_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [importId, styleCount, variantCount, manifest.skippedCount, contentHash]
+    );
+
+    await guardedJobUpdate(target,
+      `UPDATE catalog_ingestion_jobs SET status = 'validating', checkpoint = $2::jsonb WHERE id = $1`,
+      [jobId, JSON.stringify({ phase: 'validating', ...manifest })],
+      jobId, owner
+    );
+
+    // Validate staged data
+    await validateImport(target, importId, vendor, styleCount, variantCount);
+
+    if (testHooks?.beforeActivation) await testHooks.beforeActivation({ jobId, owner, importId });
+
+    // Phase 5: Activate with pointer-drift safety
+    await activateDeltaImport(target, {
+      importId, vendor, baseImportId: sourceConfig.baseImportId,
+      jobId, owner, manifest, guardedJobUpdate, leaseErrorFactory: createLeaseError,
+    });
+
+    if (testHooks?.afterActivation) await testHooks.afterActivation({ jobId, owner, importId });
+
+    return {
+      vendor,
+      jobId,
+      importId,
+      styleCount,
+      variantCount,
+      skippedCount: manifest.skippedCount,
+      contentHash,
+      activated: true,
+      mode: 'delta',
+      baseImportId: cloneResult.baseImportId,
+      modifiedStyleCount: discovery.modifiedStyleIds.length,
+      patchedStyleCount,
+      removedStyleCount: removedStyleIds.length,
+    };
+  } catch (error) {
+    const reason = redactErrorSummary(
+      error instanceof Error ? error.message : String(error)
+    );
+    const isCancellation = error.category === ErrorCategory.CANCELED || error.category === 'canceled';
+
+    await rejectAndCleanupInactiveImport(target, importId, reason).catch(() => {});
+
+    const finalStatus = isCancellation ? 'canceled' : 'rejected';
+    await guardedJobUpdate(target,
+      `UPDATE catalog_ingestion_jobs
+       SET status = $2, completed_at = CURRENT_TIMESTAMP, error_summary = $3
+       WHERE id = $1`,
+      [jobId, finalStatus, reason.slice(0, 2000)],
+      jobId, owner,
+      { allowCancelRequested: isCancellation }
+    ).catch(() => {});
+
+    throw error;
+  } finally {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
   }
 }
 
