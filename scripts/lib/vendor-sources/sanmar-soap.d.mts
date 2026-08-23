@@ -87,10 +87,54 @@ export function createSanMarSoapSource(options: {
     variants: SanMarSoapVariant[];
     message?: string;
     responseBytes: number;
+    confirmedUnavailable?: true;
   }>;
   ingest(callbacks: {
     onStyle: (style: SanMarSoapStyle) => void | Promise<void>;
     onVariant: (variant: SanMarSoapVariant) => void | Promise<void>;
     shouldContinue?: () => boolean | Promise<boolean>;
   }): Promise<SanMarSoapManifest>;
+};
+
+export interface SanMarDeltaStyleResult {
+  styleId: string;
+  action: 'replace' | 'remove';
+  styles: SanMarSoapStyle[];
+  variants: SanMarSoapVariant[];
+}
+
+export interface SanMarDeltaDiscovery {
+  snapshotTimestamp: string;
+  modifiedStyleIds: string[];
+  results: SanMarDeltaStyleResult[];
+  requestCount: number;
+  excludedStyleIds: string[];
+  excludedStyleCount: number;
+}
+
+export function createSanMarDeltaSource(options: {
+  customerNumber: string;
+  username: string;
+  password: string;
+  since?: string | Date | null;
+  fetch?: (input: string | URL, init?: RequestInit) => Promise<Response>;
+  sleep?: (ms: number) => Promise<void>;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  maxResponseBytes?: number;
+  requestDelayMs?: number;
+  now?: () => Date | string | number;
+  watermarkOverlapMs?: number;
+}): {
+  fetchModifiedStyleIds(): Promise<string[]>;
+  fetchStyle(styleId: string): Promise<{
+    styles: SanMarSoapStyle[];
+    variants: SanMarSoapVariant[];
+    message?: string;
+    responseBytes: number;
+    confirmedUnavailable?: true;
+  }>;
+  discover(options?: {
+    shouldContinue?: () => boolean | Promise<boolean>;
+  }): Promise<SanMarDeltaDiscovery>;
 };

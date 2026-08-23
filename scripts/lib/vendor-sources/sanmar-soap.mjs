@@ -259,7 +259,13 @@ export function createSanMarSoapSource({
         maxResponseBytes,
       });
       if (lookup.found) throw error;
-      return { styles: [], variants: [], message: 'confirmed unavailable', responseBytes: 0 };
+      return {
+        styles: [],
+        variants: [],
+        message: 'confirmed unavailable',
+        responseBytes: 0,
+        confirmedUnavailable: true,
+      };
     }
   }
 
@@ -287,6 +293,14 @@ export function createSanMarSoapSource({
       const result = await fetchStyle(requestedStyleId);
       requestCount++;
       if (result.variants.length === 0) {
+        if (result.confirmedUnavailable !== true) {
+          throw sourceError(
+            ErrorCategory.VALIDATION,
+            `SanMar full SOAP style ${requestedStyleId} returned a successful but empty Product Info response; ` +
+              'refusing omission without exact Product Data code-130 confirmation',
+            { retryable: false }
+          );
+        }
         excludedStyleIds.push(requestedStyleId);
       } else {
         for (const style of result.styles) {
@@ -900,6 +914,178 @@ function variantIdentity(variant) {
     resolvedCost: variant.resolvedCost,
     costBasis: variant.costBasis,
   });
+}
+
+/**
+ * Create a SanMar delta source that discovers modified/new style IDs
+ * and fetches only those styles. Returns per-style results for the
+ * orchestrator to patch into a cloned import.
+ *
+ * Unlike createSanMarSoapSource, this does NOT fetch all bootstrap styles.
+ * It only fetches styles discovered by getProductDateModified.
+ */
+export function createSanMarDeltaSource({
+  customerNumber,
+  username,
+  password,
+  since,
+  fetch: fetchFn = globalThis.fetch,
+  sleep,
+  signal,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES,
+  requestDelayMs = DEFAULT_REQUEST_DELAY_MS,
+  now = () => new Date(),
+  watermarkOverlapMs = DEFAULT_WATERMARK_OVERLAP_MS,
+} = {}) {
+  if (!customerNumber || !username || !password) {
+    throw new Error('SanMar delta credentials (customerNumber, username, password) are required');
+  }
+  if (typeof fetchFn !== 'function') throw new Error('SanMar delta fetch implementation is required');
+  const normalizedSince = normalizeSince(since);
+  if (!normalizedSince) {
+    throw new Error('SanMar delta mode requires a valid since watermark');
+  }
+  assertPositiveSafeInteger(timeoutMs, 'timeoutMs', MAX_TIMEOUT_MS);
+  assertPositiveSafeInteger(maxResponseBytes, 'maxResponseBytes', MAX_RESPONSE_BYTES);
+  if (!Number.isSafeInteger(requestDelayMs) || requestDelayMs < 0 || requestDelayMs > 60_000) {
+    throw new Error('SanMar delta requestDelayMs must be an integer from 0 through 60000');
+  }
+  if (typeof now !== 'function') throw new Error('SanMar delta now must be a function');
+  if (!Number.isSafeInteger(watermarkOverlapMs) || watermarkOverlapMs < 0) {
+    throw new Error('SanMar delta watermarkOverlapMs must be a nonnegative integer');
+  }
+
+  const postSoap = createSoapTransport({ fetchFn, sleep, signal, timeoutMs, maxResponseBytes });
+
+  async function fetchModifiedStyleIds() {
+    const xml = await postSoap({
+      url: PRODUCT_DATA_URL,
+      action: 'getProductDateModified',
+      label: 'delta date-modified discovery',
+      body: createDateModifiedRequest({ username, password, since: normalizedSince }),
+    });
+    return parseSanMarDateModifiedResponse(xml, { maxResponseBytes });
+  }
+
+  async function fetchStyle(requestedStyleId) {
+    const normalizedStyleId = requiredText(requestedStyleId, 'styleId', 'delta style request', 0);
+    let xml;
+    try {
+      xml = await postSoap({
+        url: PRODUCT_INFO_URL,
+        action: '""',
+        label: normalizedStyleId,
+        body: createStyleRequest({
+          styleId: normalizedStyleId,
+          customerNumber,
+          username,
+          password,
+        }),
+      });
+      return parseSanMarProductInfoResponse(xml, {
+        styleId: normalizedStyleId,
+        maxResponseBytes,
+      });
+    } catch (error) {
+      if (error?.sanmarErrorKind !== 'product_info_error' || error?.category === ErrorCategory.AUTH) {
+        throw error;
+      }
+      const lookupXml = await postSoap({
+        url: PRODUCT_DATA_URL,
+        action: 'getProduct',
+        label: normalizedStyleId,
+        body: createProductLookupRequest({
+          styleId: normalizedStyleId,
+          username,
+          password,
+        }),
+      });
+      const lookup = parseSanMarProductLookupResponse(lookupXml, {
+        styleId: normalizedStyleId,
+        maxResponseBytes,
+      });
+      if (lookup.found) throw error;
+      return {
+        styles: [],
+        variants: [],
+        message: 'confirmed unavailable',
+        responseBytes: 0,
+        confirmedUnavailable: true,
+      };
+    }
+  }
+
+  /**
+   * Discover and fetch changed/new styles. Returns structured results
+   * that the delta orchestrator uses to patch the cloned import.
+   *
+   * @param {Object} options
+   * @param {Function} [options.shouldContinue] - Cancellation check
+   * @returns {Promise<Object>} Delta discovery result
+   */
+  async function discover({ shouldContinue } = {}) {
+    const snapshotTimestamp = createWatermark(now, watermarkOverlapMs);
+    const modifiedStyleIds = await fetchModifiedStyleIds();
+
+    const results = [];
+    const excludedStyleIds = [];
+    let requestCount = 0;
+
+    for (const styleId of modifiedStyleIds) {
+      if (shouldContinue && !(await shouldContinue())) {
+        throw sourceError(ErrorCategory.CANCELED, 'SanMar delta discovery canceled');
+      }
+
+      const result = await fetchStyle(styleId);
+      requestCount++;
+
+      if (result.variants.length === 0) {
+        if (result.confirmedUnavailable !== true) {
+          throw sourceError(
+            ErrorCategory.VALIDATION,
+            `SanMar delta style ${styleId} returned a successful but empty Product Info response; ` +
+              'refusing removal without exact Product Data code-130 confirmation',
+            { retryable: false }
+          );
+        }
+        // Confirmed unavailable via exact Product Data code-130 reconciliation.
+        results.push({ styleId, action: 'remove', styles: [], variants: [] });
+        excludedStyleIds.push(styleId);
+      } else {
+        // Validate no conflicting duplicates within this style's response
+        const stylesById = new Map();
+        const variantsById = new Map();
+        for (const style of result.styles) {
+          addConsistent(stylesById, style.sourceStyleId, style, styleIdentity, 'style');
+        }
+        for (const variant of result.variants) {
+          addConsistent(variantsById, variant.sourceVariantId, variant, variantIdentity, 'variant');
+        }
+        results.push({
+          styleId,
+          action: 'replace',
+          styles: result.styles,
+          variants: result.variants,
+        });
+      }
+
+      if (requestDelayMs > 0 && styleId !== modifiedStyleIds.at(-1)) {
+        await sleepWithAbort(requestDelayMs, { sleep, signal });
+      }
+    }
+
+    return {
+      snapshotTimestamp,
+      modifiedStyleIds,
+      results,
+      requestCount,
+      excludedStyleIds,
+      excludedStyleCount: excludedStyleIds.length,
+    };
+  }
+
+  return { fetchModifiedStyleIds, fetchStyle, discover };
 }
 
 async function sleepWithAbort(ms, { sleep, signal }) {
