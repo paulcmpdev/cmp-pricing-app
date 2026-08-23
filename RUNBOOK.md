@@ -91,6 +91,26 @@ CMP_SANMAR_SOURCE=local npm run catalog:sync -- --vendor sanmar \
 See `docs/direct-vendor-ingestion.md` for architecture, migration stages, and
 unresolved items (SanMar secure file delivery).
 
+### First production SanMar delta and rollback
+
+Both commands below mutate the production catalog and are forbidden without
+explicit approval for that specific mutation. Follow the approval-gated
+checklists in [`docs/sanmar-delta-production-run.md`](docs/sanmar-delta-production-run.md);
+do not execute these commands from this summary alone.
+
+```bash
+# One approved manual SanMar SOAP delta
+CMP_SANMAR_SOURCE=soap npm run catalog:sync -- --vendor sanmar --sanmar-source soap --sanmar-mode delta --target-url "$VENDOR_CATALOG_DATABASE_URL"
+
+# Separately approved explicit rollback; first set the truthful approved operator
+# identifier as ROLLBACK_REQUESTED_BY per the detailed runbook, without printing it
+npm run catalog:rollback -- --vendor sanmar --expected-current-import-id "$NEW_DELTA_IMPORT_ID" --to-import-id "$PRE_DELTA_IMPORT_ID" --requested-by "$ROLLBACK_REQUESTED_BY" --reason "..." --target-url "$VENDOR_CATALOG_DATABASE_URL"
+```
+
+Do not provision or enable a recurring schedule until at least two manual
+production delta runs have each been verified, and scheduling has received a
+separate explicit approval.
+
 ### Import from Vendo PostgreSQL (legacy, retained for rollback)
 
 **Legacy rollback tooling** — retained during migration to direct vendor

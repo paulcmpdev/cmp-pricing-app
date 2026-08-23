@@ -15,6 +15,7 @@ describe.skipIf(!runIntegration)(
     let pool: pg.Pool;
     let adminPool: pg.Pool;
     const ssImportId = "11111111-1111-1111-1111-111111111111";
+    const previousSsImportId = "66666666-6666-6666-6666-666666666666";
     const sanmarImportId = "22222222-2222-2222-2222-222222222222";
 
     beforeAll(async () => {
@@ -32,6 +33,11 @@ describe.skipIf(!runIntegration)(
         `INSERT INTO catalog_imports (id, vendor, status, source_status, source_errors, style_count, variant_count, activated_at)
          VALUES ($1, 'ss', 'active', 'completed', 0, 2, 3, CURRENT_TIMESTAMP)`,
         [ssImportId]
+      );
+      await pool.query(
+        `INSERT INTO catalog_imports (id, vendor, status, source_status, source_errors, style_count, variant_count)
+         VALUES ($1, 'ss', 'superseded', 'completed', 0, 0, 0)`,
+        [previousSsImportId]
       );
       await pool.query(
         `INSERT INTO catalog_imports (id, vendor, status, source_status, source_errors, style_count, variant_count, activated_at)
@@ -101,12 +107,13 @@ describe.skipIf(!runIntegration)(
       const result = await pool.query(
         `SELECT table_name FROM information_schema.tables
          WHERE table_schema = '${SCHEMA_NAME}'
-         AND table_name IN ('catalog_imports', 'catalog_styles', 'catalog_variants', 'active_catalog_versions')
+         AND table_name IN ('catalog_imports', 'catalog_styles', 'catalog_variants', 'active_catalog_versions', 'catalog_rollbacks')
          ORDER BY table_name`
       );
       expect(result.rows.map((r: { table_name: string }) => r.table_name)).toEqual([
         "active_catalog_versions",
         "catalog_imports",
+        "catalog_rollbacks",
         "catalog_styles",
         "catalog_variants",
       ]);
@@ -121,6 +128,267 @@ describe.skipIf(!runIntegration)(
         "active_catalog_styles",
         "active_catalog_variants",
       ]);
+    });
+
+    it("creates every rollback audit column with the expected PostgreSQL types", async () => {
+      const result = await pool.query(
+        `SELECT column_name, data_type, column_default
+         FROM information_schema.columns
+         WHERE table_schema = '${SCHEMA_NAME}' AND table_name = 'catalog_rollbacks'
+         ORDER BY ordinal_position`
+      );
+
+      expect(result.rows).toEqual([
+        expect.objectContaining({ column_name: "id", data_type: "uuid" }),
+        expect.objectContaining({ column_name: "vendor", data_type: "text" }),
+        expect.objectContaining({ column_name: "from_import_id", data_type: "uuid" }),
+        expect.objectContaining({ column_name: "to_import_id", data_type: "uuid" }),
+        expect.objectContaining({ column_name: "requested_by", data_type: "text" }),
+        expect.objectContaining({ column_name: "reason", data_type: "text" }),
+        expect.objectContaining({
+          column_name: "rolled_back_at",
+          data_type: "timestamp with time zone",
+          column_default: "CURRENT_TIMESTAMP",
+        }),
+      ]);
+    });
+
+    it("creates rollback lookup indexes with import id and vendor as leading columns", async () => {
+      const result = await pool.query(
+        `SELECT indexname,
+                pg_get_indexdef((quote_ident(schemaname) || '.' || quote_ident(indexname))::regclass) AS indexdef
+         FROM pg_indexes
+         WHERE schemaname = $1
+           AND indexname IN (
+             'idx_catalog_rollbacks_from_import_vendor',
+             'idx_catalog_rollbacks_to_import_vendor'
+           )
+         ORDER BY indexname`,
+        [SCHEMA_NAME]
+      );
+
+      expect(result.rows).toHaveLength(2);
+      expect(result.rows).toEqual([
+        expect.objectContaining({
+          indexname: "idx_catalog_rollbacks_from_import_vendor",
+          indexdef: expect.stringContaining("(from_import_id, vendor)"),
+        }),
+        expect.objectContaining({
+          indexname: "idx_catalog_rollbacks_to_import_vendor",
+          indexdef: expect.stringContaining("(to_import_id, vendor)"),
+        }),
+      ]);
+    });
+
+    it("fails closed when catalog_rollbacks already has a partial schema", async () => {
+      const isolatedSchema = `test_partial_rollbacks_${randomUUID().replaceAll("-", "_")}`;
+      const isolatedPool = new pg.Pool({
+        connectionString: TEST_PG_URL,
+        max: 1,
+        options: `-c search_path=${isolatedSchema}`,
+      });
+      await adminPool.query(`CREATE SCHEMA ${isolatedSchema}`);
+
+      try {
+        await isolatedPool.query("CREATE TABLE catalog_rollbacks (id UUID PRIMARY KEY)");
+        await expect(isolatedPool.query(VENDOR_CATALOG_POSTGRES_SCHEMA_SQL)).rejects.toThrow(
+          /catalog_rollbacks schema contract mismatch/
+        );
+      } finally {
+        await isolatedPool.end();
+        await adminPool.query(`DROP SCHEMA IF EXISTS ${isolatedSchema} CASCADE`);
+      }
+    });
+
+    it("fails closed when a same-named rollback index has the wrong definition", async () => {
+      const isolatedSchema = `test_wrong_rollback_index_${randomUUID().replaceAll("-", "_")}`;
+      const isolatedPool = new pg.Pool({
+        connectionString: TEST_PG_URL,
+        max: 1,
+        options: `-c search_path=${isolatedSchema}`,
+      });
+      await adminPool.query(`CREATE SCHEMA ${isolatedSchema}`);
+
+      try {
+        await isolatedPool.query(VENDOR_CATALOG_POSTGRES_SCHEMA_SQL);
+        await isolatedPool.query("DROP INDEX idx_catalog_rollbacks_from_import_vendor");
+        await isolatedPool.query(
+          "CREATE INDEX idx_catalog_rollbacks_from_import_vendor ON catalog_rollbacks(vendor, from_import_id)"
+        );
+
+        await expect(isolatedPool.query(VENDOR_CATALOG_POSTGRES_SCHEMA_SQL)).rejects.toThrow(
+          /catalog_rollbacks index contract mismatch/
+        );
+      } finally {
+        await isolatedPool.end();
+        await adminPool.query(`DROP SCHEMA IF EXISTS ${isolatedSchema} CASCADE`);
+      }
+    });
+
+    it.each([
+      ["from_import_id", sanmarImportId, previousSsImportId],
+      ["to_import_id", ssImportId, sanmarImportId],
+    ])("rejects rollback audit rows whose %s belongs to another vendor", async (_field, fromImportId, toImportId) => {
+      await expect(
+        pool.query(
+          `INSERT INTO catalog_rollbacks
+             (id, vendor, from_import_id, to_import_id, requested_by, reason)
+           VALUES ($1, 'ss', $2, $3, 'operator@example.com', 'restore prior catalog')`,
+          [randomUUID(), fromImportId, toImportId]
+        )
+      ).rejects.toMatchObject({ code: "23503" });
+    });
+
+    it("rejects rollback audit rows with the same from and to import", async () => {
+      await expect(
+        pool.query(
+          `INSERT INTO catalog_rollbacks
+             (id, vendor, from_import_id, to_import_id, requested_by, reason)
+           VALUES ($1, 'ss', $2, $2, 'operator@example.com', 'restore prior catalog')`,
+          [randomUUID(), ssImportId]
+        )
+      ).rejects.toMatchObject({ code: "23514" });
+    });
+
+    it.each([
+      ["requested_by", "empty", "", "restore prior catalog"],
+      ["requested_by", "spaces", "   ", "restore prior catalog"],
+      ["requested_by", "tabs", "\t\t", "restore prior catalog"],
+      ["requested_by", "newlines", "\n\r\n", "restore prior catalog"],
+      ["requested_by", "mixed whitespace", " \t\n\r ", "restore prior catalog"],
+      ["reason", "empty", "operator@example.com", ""],
+      ["reason", "spaces", "operator@example.com", "   "],
+      ["reason", "tabs", "operator@example.com", "\t\t"],
+      ["reason", "newlines", "operator@example.com", "\n\r\n"],
+      ["reason", "mixed whitespace", "operator@example.com", " \t\n\r "],
+    ])("rejects rollback audit rows with blank %s (%s)", async (_field, _kind, requestedBy, reason) => {
+      await expect(
+        pool.query(
+          `INSERT INTO catalog_rollbacks
+             (id, vendor, from_import_id, to_import_id, requested_by, reason)
+           VALUES ($1, 'ss', $2, $3, $4, $5)`,
+          [randomUUID(), ssImportId, previousSsImportId, requestedBy, reason]
+        )
+      ).rejects.toMatchObject({ code: "23514" });
+    });
+
+    it("accepts rollback audit text at the requested_by and reason limits", async () => {
+      const result = await pool.query(
+        `INSERT INTO catalog_rollbacks
+           (id, vendor, from_import_id, to_import_id, requested_by, reason)
+         VALUES ($1, 'ss', $2, $3, $4, $5)
+         RETURNING requested_by, reason`,
+        [randomUUID(), ssImportId, previousSsImportId, "a".repeat(200), "b".repeat(2000)]
+      );
+
+      expect((result.rows[0] as { requested_by: string }).requested_by).toHaveLength(200);
+      expect((result.rows[0] as { reason: string }).reason).toHaveLength(2000);
+    });
+
+    it.each([
+      ["requested_by", "a".repeat(201), "valid reason"],
+      ["reason", "operator@example.com", "b".repeat(2001)],
+    ])("rejects rollback audit %s beyond its length limit", async (_field, requestedBy, reason) => {
+      await expect(
+        pool.query(
+          `INSERT INTO catalog_rollbacks
+             (id, vendor, from_import_id, to_import_id, requested_by, reason)
+           VALUES ($1, 'ss', $2, $3, $4, $5)`,
+          [randomUUID(), ssImportId, previousSsImportId, requestedBy, reason]
+        )
+      ).rejects.toMatchObject({ code: "23514" });
+    });
+
+    it("stores a valid rollback audit row with a database timestamp", async () => {
+      const id = randomUUID();
+      const result = await pool.query(
+        `INSERT INTO catalog_rollbacks
+           (id, vendor, from_import_id, to_import_id, requested_by, reason)
+         VALUES ($1, 'ss', $2, $3, 'operator@example.com', 'restore prior catalog')
+         RETURNING *`,
+        [id, ssImportId, previousSsImportId]
+      );
+
+      expect(result.rows[0]).toMatchObject({
+        id,
+        vendor: "ss",
+        from_import_id: ssImportId,
+        to_import_id: previousSsImportId,
+        requested_by: "operator@example.com",
+        reason: "restore prior catalog",
+      });
+      expect((result.rows[0] as { rolled_back_at: Date }).rolled_back_at).toBeInstanceOf(Date);
+    });
+
+    it("forces rolled_back_at to the database current timestamp", async () => {
+      const id = randomUUID();
+      const beforeInsert = new Date();
+      const result = await pool.query(
+        `INSERT INTO catalog_rollbacks
+           (id, vendor, from_import_id, to_import_id, requested_by, reason, rolled_back_at)
+         VALUES ($1, 'ss', $2, $3, 'operator@example.com', 'reject caller backdating', '2000-01-01T00:00:00Z')
+         RETURNING rolled_back_at`,
+        [id, ssImportId, previousSsImportId]
+      );
+
+      expect((result.rows[0] as { rolled_back_at: Date }).rolled_back_at.getTime())
+        .toBeGreaterThanOrEqual(beforeInsert.getTime());
+    });
+
+    it("rejects updates and deletes while leaving the rollback audit row unchanged", async () => {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO catalog_rollbacks
+           (id, vendor, from_import_id, to_import_id, requested_by, reason)
+         VALUES ($1, 'ss', $2, $3, 'immutable@example.com', 'preserve this audit row')`,
+        [id, ssImportId, previousSsImportId]
+      );
+      const before = await pool.query("SELECT * FROM catalog_rollbacks WHERE id = $1", [id]);
+
+      await expect(
+        pool.query("UPDATE catalog_rollbacks SET reason = 'tampered' WHERE id = $1", [id])
+      ).rejects.toMatchObject({ code: "55000" });
+      await expect(
+        pool.query("DELETE FROM catalog_rollbacks WHERE id = $1", [id])
+      ).rejects.toMatchObject({ code: "55000" });
+
+      const after = await pool.query("SELECT * FROM catalog_rollbacks WHERE id = $1", [id]);
+      expect(after.rows).toEqual(before.rows);
+    });
+
+    it("blocks accidental application/operator TRUNCATE and preserves the exact audit row", async () => {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO catalog_rollbacks
+           (id, vendor, from_import_id, to_import_id, requested_by, reason)
+         VALUES ($1, 'ss', $2, $3, 'truncate-guard@example.com', 'preserve against accidental truncate')`,
+        [id, ssImportId, previousSsImportId]
+      );
+      const before = await pool.query("SELECT * FROM catalog_rollbacks WHERE id = $1", [id]);
+
+      await expect(pool.query("TRUNCATE TABLE catalog_rollbacks")).rejects.toMatchObject({
+        code: "55000",
+        message: "catalog_rollbacks is append-only; TRUNCATE is not allowed",
+      });
+
+      const after = await pool.query("SELECT * FROM catalog_rollbacks WHERE id = $1", [id]);
+      expect(after.rows).toEqual(before.rows);
+    });
+
+    it("can reapply the schema without losing rollback audit rows", async () => {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO catalog_rollbacks
+           (id, vendor, from_import_id, to_import_id, requested_by, reason, rolled_back_at)
+         VALUES ($1, 'ss', $2, $3, 'schema-reapply@example.com', 'verify immutable audit row', $4)`,
+        [id, ssImportId, previousSsImportId, "2026-08-23T12:34:56.789Z"]
+      );
+      const before = await pool.query("SELECT * FROM catalog_rollbacks WHERE id = $1", [id]);
+      await pool.query(VENDOR_CATALOG_POSTGRES_SCHEMA_SQL);
+      const after = await pool.query("SELECT * FROM catalog_rollbacks WHERE id = $1", [id]);
+
+      expect(before.rows).toHaveLength(1);
+      expect(after.rows).toEqual(before.rows);
     });
 
     it("active views filter by catalog_imports status=active", async () => {
