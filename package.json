@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "catalog:sync": "node scripts/sync-vendor-catalog.mjs",
+    "catalog:rollback": "node scripts/rollback-vendor-catalog.mjs",
     "catalog:import-vendo": "node scripts/import-vendo-catalog-postgres.mjs",
     "catalog:seed-sqlite": "node scripts/seed-catalog-from-sqlite.mjs",
     "catalog:import-sqlite": "node scripts/import-vendo-catalog.mjs"
