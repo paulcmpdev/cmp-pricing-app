@@ -1801,11 +1801,15 @@ describe('sync-vendor-catalog orchestrator', () => {
     expect(source).toContain('export async function runIngestion');
   });
 
-  it('requires SanMar file paths (no network default)', () => {
+  it('supports explicit SanMar SOAP and local-file source configuration', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'scripts/sync-vendor-catalog.mjs'),
       'utf8'
     );
+    expect(source).toContain('CMP_SANMAR_SOURCE');
+    expect(source).toContain('CMP_SANMAR_CUSTOMER_NUMBER');
+    expect(source).toContain('CMP_SANMAR_USERNAME');
+    expect(source).toContain('CMP_SANMAR_PASSWORD');
     expect(source).toContain('CMP_SANMAR_EPDD_PATH');
     expect(source).toContain('CMP_SANMAR_DIP_PATH');
   });

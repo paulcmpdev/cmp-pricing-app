@@ -19,6 +19,10 @@ import {
   EPDD_HEADERS,
   EPDD_VALID_CONTENT,
 } from '../../tests/fixtures/vendor-sources/sanmar-fixtures.mjs';
+import {
+  SANMAR_SOAP_FAULT_RESPONSE,
+  SANMAR_SOAP_PRODUCT_RESPONSE,
+} from '../../tests/fixtures/vendor-sources/sanmar-soap-fixtures.mjs';
 
 const TEST_PG_URL = process.env.VENDOR_CATALOG_TEST_DATABASE_URL;
 const runIntegration = TEST_PG_URL != null && TEST_PG_URL.length > 0;
@@ -131,6 +135,19 @@ describe.skipIf(!runIntegration)(
           return new Response(JSON.stringify(rows), { status: 200, headers });
         }
         return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers });
+      };
+    }
+
+    function sanmarSoapFetchFixture(body = SANMAR_SOAP_PRODUCT_RESPONSE) {
+      return async (url: string) => {
+        const parsed = new URL(url);
+        if (parsed.pathname === '/SanMarWebService/SanMarProductInfoServicePort') {
+          return new Response(body, { status: 200, headers: { 'content-type': 'text/xml' } });
+        }
+        return new Response(SANMAR_SOAP_FAULT_RESPONSE, {
+          status: 500,
+          headers: { 'content-type': 'text/xml' },
+        });
       };
     }
 
@@ -559,6 +576,93 @@ describe.skipIf(!runIntegration)(
       expect(row.variants).toBe(5);
       expect(row.orphans).toBe(0);
       expect(row.job_status).toBe('completed');
+    });
+
+    it('activates SanMar SOAP into PostgreSQL with null inventory, source timestamps, and server-side costs', async () => {
+      await resetVendor('sanmar');
+      const previousImportId = await seedActiveBaseline('sanmar', { styles: 1, variants: 2 });
+
+      const result = await runIngestion({
+        vendor: 'sanmar',
+        target: pool,
+        sourceConfig: {
+          type: 'sanmar-soap', customerNumber: 'customer', username: 'user', password: 'password',
+          styleIds: ['K500'], since: null,
+        },
+        fetch: sanmarSoapFetchFixture(),
+        sleep: async () => {},
+        batchSize: 1,
+        leaseOwner: 'sanmar-soap-success-owner',
+      }) as IngestionResult;
+
+      const checks = await pool.query(
+        `SELECT
+           (SELECT import_id FROM active_catalog_versions WHERE vendor = 'sanmar') AS active_import_id,
+           (SELECT status FROM catalog_imports WHERE id = $1) AS previous_status,
+           (SELECT status FROM catalog_imports WHERE id = $2) AS current_status,
+           (SELECT count(*)::int FROM catalog_styles WHERE import_id = $2) AS styles,
+           (SELECT count(*)::int FROM catalog_variants WHERE import_id = $2) AS variants,
+           (SELECT count(*)::int FROM catalog_variants WHERE import_id = $2 AND inventory_qty IS NOT NULL) AS inventory_rows,
+           (SELECT count(*)::int FROM catalog_variants WHERE import_id = $2 AND source_sync_at IS NULL) AS missing_sync_times,
+           (SELECT count(*)::int FROM catalog_variants v
+             LEFT JOIN catalog_styles s ON s.import_id = v.import_id AND s.id = v.style_id
+             WHERE v.import_id = $2 AND s.id IS NULL) AS orphans`,
+        [previousImportId, result.importId]
+      );
+      const row = checks.rows[0] as any;
+      expect(result.activated).toBe(true);
+      expect(row.active_import_id).toBe(result.importId);
+      expect(row.previous_status).toBe('superseded');
+      expect(row.current_status).toBe('active');
+      expect(row.styles).toBe(1);
+      expect(row.variants).toBe(2);
+      expect(row.inventory_rows).toBe(0);
+      expect(row.missing_sync_times).toBe(0);
+      expect(row.orphans).toBe(0);
+
+      const styles = await repo().searchStyles({ query: 'K500', vendor: 'sanmar' });
+      expect(Object.keys(styles[0]).join(' ')).not.toMatch(/cost|price|cogs/i);
+      const variants = await repo().getStyleVariants(styles[0].id);
+      expect(variants).toHaveLength(2);
+      expect(Object.keys(variants[0]).join(' ')).not.toMatch(/cost|price|cogs/i);
+      const cost = await repo().resolveVariantCost('sanmar:208283');
+      expect(cost?.unitCost).toBe(11.3);
+      expect(cost?.costBasis).toBe('piecePrice');
+    });
+
+    it('rejects a SanMar SOAP fault, cleans staging, and preserves the prior pointer', async () => {
+      await resetVendor('sanmar');
+      const previousImportId = await seedActiveBaseline('sanmar', { styles: 1, variants: 2 });
+
+      await expect(runIngestion({
+        vendor: 'sanmar',
+        target: pool,
+        sourceConfig: {
+          type: 'sanmar-soap', customerNumber: 'customer', username: 'user', password: 'password',
+          styleIds: ['K500'], since: null,
+        },
+        fetch: sanmarSoapFetchFixture(SANMAR_SOAP_FAULT_RESPONSE),
+        sleep: async () => {},
+        batchSize: 1,
+        leaseOwner: 'sanmar-soap-fault-owner',
+      })).rejects.toThrow(/SOAP fault/i);
+
+      const checks = await pool.query(
+        `SELECT
+           (SELECT import_id FROM active_catalog_versions WHERE vendor = 'sanmar') AS active_import_id,
+           (SELECT count(*)::int FROM catalog_styles s
+             JOIN catalog_imports i ON i.id = s.import_id
+             WHERE i.vendor = 'sanmar' AND i.status <> 'active') AS staged_styles,
+           (SELECT count(*)::int FROM catalog_variants v
+             JOIN catalog_imports i ON i.id = v.import_id
+             WHERE i.vendor = 'sanmar' AND i.status <> 'active') AS staged_variants,
+           (SELECT error_summary FROM catalog_ingestion_jobs
+             WHERE vendor = 'sanmar' ORDER BY created_at DESC LIMIT 1) AS error_summary`
+      );
+      expect(checks.rows[0].active_import_id).toBe(previousImportId);
+      expect(checks.rows[0].staged_styles).toBe(0);
+      expect(checks.rows[0].staged_variants).toBe(0);
+      expect(checks.rows[0].error_summary).not.toMatch(/customer|password|response_body_sentinel/i);
     });
 
     it('runIngestion activates S&S fixtures, supersedes prior active import, has no orphans, and keeps costs server-side', async () => {
