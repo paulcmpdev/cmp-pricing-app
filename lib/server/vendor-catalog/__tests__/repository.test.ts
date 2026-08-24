@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildVendorCatalogTestDb } from "@/tests/fixtures/vendor-catalog/build-test-db";
 import {
+  getAdminCatalogOverview,
   getVendorCatalogStatus,
   resolveCatalogVariantCost,
   searchVendorCatalogStyles,
   getVendorCatalogStyleVariants,
+  closeVendorCatalogPoolForTests,
 } from "../repository";
 
 const originalPath = process.env.VENDOR_CATALOG_DB_PATH;
@@ -24,7 +26,8 @@ function useFixtureDb() {
   return dbPath;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await closeVendorCatalogPoolForTests();
   if (originalDatabaseUrl == null) {
     delete process.env.VENDOR_CATALOG_DATABASE_URL;
   } else {
@@ -41,6 +44,59 @@ afterEach(() => {
 });
 
 describe("vendor catalog repository", () => {
+  it("returns a generic unavailable admin overview when PostgreSQL is not configured", async () => {
+    delete process.env.VENDOR_CATALOG_DB_PATH;
+    delete process.env.VENDOR_CATALOG_DATABASE_URL;
+
+    await expect(getAdminCatalogOverview()).resolves.toMatchObject({
+      available: false,
+      backend: "unconfigured",
+      reason: "The vendor catalog overview is unavailable.",
+      vendors: {
+        ss: expect.objectContaining({ health: "unavailable" }),
+        sanmar: expect.objectContaining({ health: "unavailable" }),
+      },
+      recentJobs: [],
+      rollbackSummary: {
+        ss: { totalCount: 0, latestAt: null },
+        sanmar: { totalCount: 0, latestAt: null },
+      },
+      totals: { styleCount: 0, variantCount: 0, healthyVendorCount: 0 },
+    });
+  });
+
+  it("returns a generic unavailable admin overview for SQLite-only configuration without leaking paths", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmp-vendor-catalog-admin-"));
+    tempDirs.push(dir);
+    const path = join(dir, "vendor-catalog.sqlite");
+    writeFileSync(path, "");
+    process.env.VENDOR_CATALOG_DB_PATH = path;
+    delete process.env.VENDOR_CATALOG_DATABASE_URL;
+
+    const overview = await getAdminCatalogOverview();
+
+    expect(overview).toMatchObject({
+      available: false,
+      backend: "sqlite",
+      reason: "The vendor catalog overview is unavailable.",
+    });
+    expect(JSON.stringify(overview)).not.toContain(path);
+  });
+
+  it("returns a generic unavailable admin overview when PostgreSQL fails", async () => {
+    process.env.VENDOR_CATALOG_DATABASE_URL =
+      "postgres://invalid:invalid@127.0.0.1:1/invalid";
+    delete process.env.VENDOR_CATALOG_DB_PATH;
+
+    const overview = await getAdminCatalogOverview();
+
+    expect(overview).toMatchObject({
+      available: false,
+      backend: "postgres",
+      reason: "The vendor catalog overview is unavailable.",
+    });
+  });
+
   it("reports graceful unavailable state when no SQLite path is configured", async () => {
     delete process.env.VENDOR_CATALOG_DB_PATH;
     delete process.env.VENDOR_CATALOG_DATABASE_URL;

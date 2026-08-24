@@ -1,6 +1,7 @@
 import { getCatalogEntries } from "@/lib/server/catalog";
 import QuoteDeskClient from "./concepts/quote-desk/QuoteDeskClient";
 import Image from "next/image";
+import Link from "next/link";
 
 export const metadata = {
   title: "Quote Desk - CMP Pricing",
@@ -25,6 +26,12 @@ export default function RootPage() {
             QUOTE DESK
           </h1>
         </div>
+        <Link
+          href="/admin"
+          className="text-xs text-cmp-gray hover:text-cmp-cyan transition-colors"
+        >
+          Admin
+        </Link>
         <Image
           src="/brand/logo-dark.png"
           alt="Compound Sportswear"
