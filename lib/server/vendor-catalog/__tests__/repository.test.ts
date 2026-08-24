@@ -157,8 +157,8 @@ describe("vendor catalog repository", () => {
       variantId: "ss:3001-BLK-M",
     });
     await expect(resolveCatalogVariantCost("sanmar:K500-RED-L")).resolves.toMatchObject({
-      unitCost: 9.75,
-      costBasis: "piecePrice",
+      unitCost: 9.25,
+      costBasis: "casePrice",
       vendor: "sanmar",
       variantId: "sanmar:K500-RED-L",
     });

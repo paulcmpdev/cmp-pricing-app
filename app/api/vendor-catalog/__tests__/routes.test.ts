@@ -202,8 +202,8 @@ describe("vendor catalog quote API path", () => {
       styleCode: "K500",
       color: "Red",
       size: "L",
-      unitCost: 9.75,
-      costBasis: "piecePrice",
+      unitCost: 9.25,
+      costBasis: "casePrice",
       sourceSyncAt: "2026-06-29T00:00:00.000Z",
     });
   });

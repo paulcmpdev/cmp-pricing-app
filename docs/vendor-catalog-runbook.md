@@ -41,7 +41,7 @@ VENDOR_CATALOG_DB_PATH=data/vendor-catalog.sqlite npm run dev
 
 The command prints imported style/variant counts and invalid price-row counts.
 S&S `resolved_cost` uses `piecePrice` (the regular S&S price).
-SanMar `resolved_cost` uses `piecePrice`.
+SanMar `resolved_cost` uses `casePrice`.
 
 ## Git Boundary
 

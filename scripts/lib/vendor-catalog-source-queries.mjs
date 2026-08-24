@@ -148,7 +148,7 @@ SELECT
   latest_success.completed_at AS source_sync_at
 FROM sanmar_styles s
 LEFT JOIN latest_success ON true
-WHERE NULLIF(s."piecePrice", 0) IS NOT NULL
+WHERE s."casePrice" > 0
 GROUP BY s."style", latest_success.completed_at`;
 
 export const SANMAR_VARIANTS_QUERY = `
@@ -178,15 +178,15 @@ SELECT
   s."casePrice" AS case_price,
   NULL::numeric AS sale_price,
   NULL::numeric AS customer_price,
-  s."piecePrice" AS resolved_cost,
-  'piecePrice' AS cost_basis,
+  s."casePrice" AS resolved_cost,
+  'casePrice' AS cost_basis,
   latest_success.completed_at AS source_sync_at
 FROM sanmar_styles s
 LEFT JOIN sanmar_products p ON p."partId" = s."inventoryKey"
 LEFT JOIN latest_success ON true
-WHERE NULLIF(s."piecePrice", 0) IS NOT NULL`;
+WHERE s."casePrice" > 0`;
 
 export const INVALID_PRICE_QUERIES = {
   ss: `SELECT COUNT(*)::int AS count FROM ss_products WHERE "piecePrice" IS NULL OR "piecePrice" <= 0`,
-  sanmar: `SELECT COUNT(*)::int AS count FROM sanmar_styles WHERE NULLIF("piecePrice", 0) IS NULL`,
+  sanmar: `SELECT COUNT(*)::int AS count FROM sanmar_styles WHERE "casePrice" IS NULL OR "casePrice" <= 0`,
 };

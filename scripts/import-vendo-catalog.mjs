@@ -204,7 +204,7 @@ SELECT
   latest_success.completed_at source_sync_at
 FROM sanmar_styles s
 LEFT JOIN latest_success ON true
-WHERE NULLIF(s."piecePrice", 0) IS NOT NULL
+WHERE s."casePrice" > 0
 GROUP BY s."style", latest_success.completed_at;
 `;
 
@@ -235,13 +235,13 @@ SELECT
   s."casePrice" case_price,
   NULL::real sale_price,
   NULL::real customer_price,
-  s."piecePrice" resolved_cost,
-  'piecePrice' cost_basis,
+  s."casePrice" resolved_cost,
+  'casePrice' cost_basis,
   latest_success.completed_at source_sync_at
 FROM sanmar_styles s
 LEFT JOIN sanmar_products p ON p."partId" = s."inventoryKey"
 LEFT JOIN latest_success ON true
-WHERE NULLIF(s."piecePrice", 0) IS NOT NULL;
+WHERE s."casePrice" > 0;
 `;
 
 const invalidSs = sql`
@@ -250,7 +250,7 @@ WHERE "piecePrice" IS NULL OR "piecePrice" <= 0;
 `;
 
 const invalidSanmar = sql`
-SELECT COUNT(*) count FROM sanmar_styles WHERE NULLIF("piecePrice", 0) IS NULL;
+SELECT COUNT(*) count FROM sanmar_styles WHERE "casePrice" IS NULL OR "casePrice" <= 0;
 `;
 
 await main();

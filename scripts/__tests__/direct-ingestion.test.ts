@@ -1472,7 +1472,7 @@ describe('SanMar DIP parser', () => {
 
   it('does not treat legacy D code as official discontinued status', async () => {
     const dip = `${DIP_HEADERS}
-INV005|S05|PC61|Navy|L|WH1|80|4.50|54.00|||9.50|2026-01-01|2026-12-31|PC61-NVY-L|D
+INV005|S05|PC61|Navy|L|WH1|80|4.50|54.00|4.25||9.50|2026-01-01|2026-12-31|PC61-NVY-L|D
 `;
     const { records } = await parseDIP(streamFrom(dip), snapshotTime);
     const pc61l = records.get('PC61-NVY-L')!;
@@ -1511,7 +1511,7 @@ INV005|S05|PC61|Navy|L|WH1|80|4.50|54.00|||9.50|2026-01-01|2026-12-31|PC61-NVY-L
 
   it('counts malformed DIP rows', async () => {
     const dipWithMalformed = `${DIP_HEADERS}
-INV001|S01|K500|Black|M|WH1|25|11.00|132.00|||9.50|2026-01-01|2026-12-31|K500-BLK-M|
+INV001|S01|K500|Black|M|WH1|25|11.00|132.00|9.25||9.50|2026-01-01|2026-12-31|K500-BLK-M|
 short|row
 `;
     const { records, malformedCount } = await parseDIP(streamFrom(dipWithMalformed), snapshotTime);
@@ -1528,8 +1528,8 @@ short|row
     ['non-finite price', '5|Infinity'],
   ])('counts %s as malformed instead of partially parsing it', async (_label, numericFields) => {
     const dip = `${DIP_HEADERS}
-INV001|S01|K500|Black|M|WH1|25|11.00|132.00||||||K500-BLK-M|
-INV002|S02|K500|Black|L|WH1|${numericFields}|132.00||||||K500-BLK-L|
+INV001|S01|K500|Black|M|WH1|25|11.00|132.00|9.25|||||K500-BLK-M|
+INV002|S02|K500|Black|L|WH1|${numericFields}|132.00|9.25|||||K500-BLK-L|
 `;
     const { records, malformedCount } = await parseDIP(streamFrom(dip), snapshotTime);
     expect(records.size).toBe(1);
@@ -1560,7 +1560,54 @@ describe('SanMar EPDD+DIP join', () => {
     expect(result.skippedCount).toBe(0);
   });
 
-  it('uses DIP sale price when active', async () => {
+  it('resolves SanMar local DIP cost from casePrice even when an active sale is lower', async () => {
+    const epdd = `${EPDD_HEADERS}
+"BC3001-AQUA-XS","Jersey Tee","Soft tee","BC3001","T-Shirts","Aqua","XS","5.54","4.38","INV101","S01","Bella + Canvas","Active",""
+`;
+    const dipWithActiveSale = `${DIP_HEADERS}
+INV101|S01|BC3001|Aqua|XS|WH1|12|5.54|60.00|4.38|72|3.99|2026-01-01|2026-12-31|BC3001-AQUA-XS|
+`;
+    const { products } = await parseEPDD(streamFrom(epdd));
+    const { records } = await parseDIP(streamFrom(dipWithActiveSale), snapshotTime);
+
+    const variants: any[] = [];
+    await joinEPDDAndDIP(products, records, {
+      onVariant: (v: any) => { variants.push(v); },
+    });
+
+    expect(variants).toHaveLength(1);
+    expect(variants[0]).toMatchObject({
+      piecePrice: 5.54,
+      casePrice: 4.38,
+      salePrice: 3.99,
+      resolvedCost: 4.38,
+      costBasis: 'casePrice',
+    });
+  });
+
+  it('marks local SanMar rows unpriced when casePrice is missing or zero', async () => {
+    const epdd = `${EPDD_HEADERS}
+"BC3001-AQUA-XS","Jersey Tee","Soft tee","BC3001","T-Shirts","Aqua","XS","5.54","","INV101","S01","Bella + Canvas","Active",""
+"BC3001-AQUA-S","Jersey Tee","Soft tee","BC3001","T-Shirts","Aqua","S","5.54","0","INV102","S02","Bella + Canvas","Active",""
+`;
+    const dip = `${DIP_HEADERS}
+INV101|S01|BC3001|Aqua|XS|WH1|12|5.54|60.00||72|3.99|2026-01-01|2026-12-31|BC3001-AQUA-XS|
+INV102|S02|BC3001|Aqua|S|WH1|12|5.54|60.00|0|72||2026-01-01|2026-12-31|BC3001-AQUA-S|
+`;
+    const { products } = await parseEPDD(streamFrom(epdd));
+    const { records } = await parseDIP(streamFrom(dip), snapshotTime);
+
+    const variants: any[] = [];
+    const result = await joinEPDDAndDIP(products, records, {
+      onVariant: (v: any) => { variants.push(v); },
+    });
+
+    expect(variants).toHaveLength(0);
+    expect(result.variantCount).toBe(0);
+    expect(result.skippedCount).toBe(2);
+  });
+
+  it('preserves active DIP sale price while resolving cost from casePrice', async () => {
     const { products: epdd } = await parseEPDD(streamFrom(EPDD_VALID_CONTENT));
     const { records: dip } = await parseDIP(streamFrom(DIP_VALID_CONTENT), snapshotTime);
 
@@ -1570,11 +1617,12 @@ describe('SanMar EPDD+DIP join', () => {
     });
 
     const k500blkm = variants.find((v: any) => v.sourceVariantId === 'K500-BLK-M');
-    expect(k500blkm?.resolvedCost).toBe(9.50);
-    expect(k500blkm?.costBasis).toBe('salePrice');
+    expect(k500blkm?.salePrice).toBe(9.50);
+    expect(k500blkm?.resolvedCost).toBe(9.25);
+    expect(k500blkm?.costBasis).toBe('casePrice');
   });
 
-  it('falls back to piecePrice when no active sale', async () => {
+  it('uses casePrice when there is no active sale', async () => {
     const { products: epdd } = await parseEPDD(streamFrom(EPDD_VALID_CONTENT));
     const { records: dip } = await parseDIP(streamFrom(DIP_VALID_CONTENT), snapshotTime);
 
@@ -1584,8 +1632,51 @@ describe('SanMar EPDD+DIP join', () => {
     });
 
     const k500blkl = variants.find((v: any) => v.sourceVariantId === 'K500-BLK-L');
-    expect(k500blkl?.resolvedCost).toBe(11.00);
-    expect(k500blkl?.costBasis).toBe('piecePrice');
+    expect(k500blkl?.resolvedCost).toBe(9.25);
+    expect(k500blkl?.costBasis).toBe('casePrice');
+  });
+
+  it('resolves from EPDD CASE_PRICE when DIP is missing and fallback is enabled', async () => {
+    const epdd = `${EPDD_HEADERS}
+"BC3001-AQUA-XS","Jersey Tee","Soft tee","BC3001","T-Shirts","Aqua","XS","5.54","4.38","INV101","S01","Bella + Canvas","Active",""
+`;
+    const dipHeadersOnly = `${DIP_HEADERS}
+`;
+    const { products } = await parseEPDD(streamFrom(epdd));
+    const { records } = await parseDIP(streamFrom(dipHeadersOnly), snapshotTime);
+
+    const variants: any[] = [];
+    await joinEPDDAndDIP(products, records, {
+      allowEpddPriceFallbackMissingDip: true,
+      onVariant: (v: any) => { variants.push(v); },
+    });
+
+    expect(variants).toHaveLength(1);
+    expect(variants[0]).toMatchObject({
+      piecePrice: 5.54,
+      casePrice: 4.38,
+      resolvedCost: 4.38,
+      costBasis: 'casePrice',
+    });
+  });
+
+  it('skips EPDD fallback rows when CASE_PRICE is missing even if PIECE_PRICE is present', async () => {
+    const epdd = `${EPDD_HEADERS}
+"BC3001-AQUA-XS","Jersey Tee","Soft tee","BC3001","T-Shirts","Aqua","XS","5.54","","INV101","S01","Bella + Canvas","Active",""
+`;
+    const dipHeadersOnly = `${DIP_HEADERS}
+`;
+    const { products } = await parseEPDD(streamFrom(epdd));
+    const { records } = await parseDIP(streamFrom(dipHeadersOnly), snapshotTime);
+
+    const variants: any[] = [];
+    const result = await joinEPDDAndDIP(products, records, {
+      allowEpddPriceFallbackMissingDip: true,
+      onVariant: (v: any) => { variants.push(v); },
+    });
+
+    expect(variants).toHaveLength(0);
+    expect(result.skippedCount).toBe(1);
   });
 
   it('uses DIP inventory aggregated across warehouses', async () => {
@@ -1673,7 +1764,7 @@ describe('SanMar full ingestion', () => {
 "K500-BLK-L","Unpriced Variant","Classic polo","K500","Polos","Black","L","12.50","","INV002","S02","Port Authority","Active",""
 `;
     const dip = `${DIP_HEADERS}
-INV001|S01|K500|Black|M|WH1|25|11.00|132.00||||||K500-BLK-M|
+INV001|S01|K500|Black|M|WH1|25|11.00|132.00|9.25|||||K500-BLK-M|
 INV002|S02|K500|Black|L|WH1|30||||||||K500-BLK-L|
 `;
     const manifest = await ingestSanMar({
@@ -1716,10 +1807,10 @@ INV002|S02|K500|Black|L|WH1|30||||||||K500-BLK-L|
 
   it('marks manifest incomplete when an EPDD key is missing from DIP', async () => {
     const dipMissingOneKey = `${DIP_HEADERS}
-INV001|S01|K500|Black|M|WH1|25|11.00|132.00||||||K500-BLK-M|
-INV002|S02|K500|Black|L|WH1|30|11.00|132.00||||||K500-BLK-L|
-INV003|S03|K500|Red|S|WH1|0|11.00|132.00||||||K500-RED-S|
-INV004|S04|PC61|Navy|M|WH1|100|4.50|54.00||||||PC61-NVY-M|
+INV001|S01|K500|Black|M|WH1|25|11.00|132.00|9.25|||||K500-BLK-M|
+INV002|S02|K500|Black|L|WH1|30|11.00|132.00|9.25|||||K500-BLK-L|
+INV003|S03|K500|Red|S|WH1|0|11.00|132.00|9.25|||||K500-RED-S|
+INV004|S04|PC61|Navy|M|WH1|100|4.50|54.00|4.25|||||PC61-NVY-M|
 `;
 
     const manifest = await ingestSanMar({
@@ -1797,6 +1888,69 @@ INV004|S04|PC61|Navy|M|WH1|100|4.50|54.00||||||PC61-NVY-M|
         },
       })
     ).rejects.toThrow(/canceled/i);
+  });
+
+  it('EPDD fallback: CASE_PRICE 0 yields incomplete manifest with sourceErrors > 0', async () => {
+    const epdd = `${EPDD_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","12.50","0","INV001","S01","Port Authority","Active",""
+`;
+    const dipEmpty = `${DIP_HEADERS}
+`;
+    const manifest = await ingestSanMar({
+      epddSource: streamFrom(epdd),
+      dipSource: streamFrom(dipEmpty),
+      snapshotTime: new Date('2026-08-22T12:00:00Z'),
+      onStyle: () => {},
+      onVariant: () => {},
+      allowEpddPriceFallbackMissingDip: true,
+    });
+
+    expect(manifest.variantCount).toBe(0);
+    expect(manifest.complete).toBe(false);
+    expect(manifest.sourceErrors).toBeGreaterThan(0);
+    expect(() => assertManifestCompleteForActivation(manifest)).toThrow(/refusing activation/i);
+  });
+
+  it('EPDD fallback: CASE_PRICE -1 yields incomplete manifest with sourceErrors > 0', async () => {
+    const epdd = `${EPDD_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","12.50","-1","INV001","S01","Port Authority","Active",""
+`;
+    const dipEmpty = `${DIP_HEADERS}
+`;
+    const manifest = await ingestSanMar({
+      epddSource: streamFrom(epdd),
+      dipSource: streamFrom(dipEmpty),
+      snapshotTime: new Date('2026-08-22T12:00:00Z'),
+      onStyle: () => {},
+      onVariant: () => {},
+      allowEpddPriceFallbackMissingDip: true,
+    });
+
+    expect(manifest.variantCount).toBe(0);
+    expect(manifest.complete).toBe(false);
+    expect(manifest.sourceErrors).toBeGreaterThan(0);
+    expect(() => assertManifestCompleteForActivation(manifest)).toThrow(/refusing activation/i);
+  });
+
+  it('EPDD fallback: malformed CASE_PRICE "USD 4.38" yields incomplete manifest with sourceErrors > 0', async () => {
+    const epdd = `${EPDD_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","12.50","USD 4.38","INV001","S01","Port Authority","Active",""
+`;
+    const dipEmpty = `${DIP_HEADERS}
+`;
+    const manifest = await ingestSanMar({
+      epddSource: streamFrom(epdd),
+      dipSource: streamFrom(dipEmpty),
+      snapshotTime: new Date('2026-08-22T12:00:00Z'),
+      onStyle: () => {},
+      onVariant: () => {},
+      allowEpddPriceFallbackMissingDip: true,
+    });
+
+    expect(manifest.variantCount).toBe(0);
+    expect(manifest.complete).toBe(false);
+    expect(manifest.sourceErrors).toBeGreaterThan(0);
+    expect(() => assertManifestCompleteForActivation(manifest)).toThrow(/refusing activation/i);
   });
 });
 
@@ -1940,7 +2094,7 @@ describe('sync-vendor-catalog orchestrator', () => {
       'utf8'
     );
     expect(source).toMatch(
-      /await validateImport\(target, importId, vendor, manifest\.styleCount, manifest\.variantCount\);\s*if \(testHooks\?\.beforeActivation\) await testHooks\.beforeActivation\(\{ jobId, owner, importId \}\);\s*await assertSSPiecePriceInvariant\(target, importId\);\s*\/\/ Activate/
+      /await validateImport\(target, importId, vendor, manifest\.styleCount, manifest\.variantCount\);\s*if \(testHooks\?\.beforeActivation\) await testHooks\.beforeActivation\(\{ jobId, owner, importId \}\);\s*if \(vendor === 'ss'\) \{\s*await assertSSPiecePriceInvariant\(target, importId\);\s*\}\s*\/\/ Activate/
     );
     expect(source).toContain("Delta mode is only supported for sanmar");
   });

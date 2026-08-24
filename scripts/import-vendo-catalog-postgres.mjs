@@ -17,6 +17,7 @@ import {
   buildParameterizedInsert,
   normalizeDatabaseUrlForComparison,
 } from "./lib/postgres-import-helpers.mjs";
+import * as importHelpers from "./lib/postgres-import-helpers.mjs";
 
 const { Pool } = pg;
 const STYLE_COLUMNS = [
@@ -135,8 +136,13 @@ async function importVendor(vendor, sourceMetadata) {
        WHERE id = $1`,
       [importId, styleCount, variantCount, invalidPriceCount, hash.digest("hex")]
     );
+    if (requestedVendor === 'sanmar') {
+      await importHelpers.assertSanMarCasePriceInvariant(target, importId);
+    }
     await validateImport(importId, vendor, styleCount, variantCount);
-    await assertSSPiecePriceInvariant(target, importId);
+    if (vendor === "ss") {
+      await assertSSPiecePriceInvariant(target, importId);
+    }
     await activateImport(importId, vendor);
 
     return {
@@ -268,6 +274,12 @@ async function activateImport(importId, vendor) {
       [vendor]
     );
     const previousImportId = current.rows[0]?.import_id;
+    if (vendor === "ss") {
+      await assertSSPiecePriceInvariant(client, importId);
+    }
+    if (vendor === "sanmar") {
+      await importHelpers.assertSanMarCasePriceInvariant(client, importId);
+    }
     if (previousImportId) {
       await client.query(
         `UPDATE catalog_imports SET status = 'superseded' WHERE id = $1`,

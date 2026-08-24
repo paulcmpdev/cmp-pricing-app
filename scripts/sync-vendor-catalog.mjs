@@ -26,6 +26,7 @@ import { VENDOR_CATALOG_POSTGRES_SCHEMA_SQL } from '../lib/server/vendor-catalog
 import {
   assertSSPiecePriceInvariant,
   assertSafeCatalogCounts,
+  assertSanMarCasePriceInvariant,
   buildParameterizedInsert,
 } from './lib/postgres-import-helpers.mjs';
 import { createSSSource } from './lib/vendor-sources/ss.mjs';
@@ -322,7 +323,9 @@ export async function runIngestion({
 
     if (testHooks?.beforeActivation) await testHooks.beforeActivation({ jobId, owner, importId });
 
-    await assertSSPiecePriceInvariant(target, importId);
+    if (vendor === 'ss') {
+      await assertSSPiecePriceInvariant(target, importId);
+    }
 
     // Activate and complete the owned job in one transaction.
     await activateImport(target, importId, vendor, jobId, owner, manifest);
@@ -1168,6 +1171,11 @@ async function validateImport(target, importId, vendor, styleCount, variantCount
   ) {
     throw new Error(`${vendor} import failed validation: ${JSON.stringify(checks)}`);
   }
+
+  // SanMar case-price invariant: fail-closed before activation
+  if (vendor === 'sanmar') {
+    await assertSanMarCasePriceInvariant(target, importId);
+  }
 }
 
 async function activateImport(target, importId, vendor, jobId, owner, manifest) {
@@ -1197,6 +1205,12 @@ async function activateImport(target, importId, vendor, jobId, owner, manifest) 
       [vendor]
     );
     const previousImportId = current.rows[0]?.import_id;
+    if (vendor === 'ss') {
+      await assertSSPiecePriceInvariant(client, importId);
+    }
+    if (vendor === 'sanmar') {
+      await assertSanMarCasePriceInvariant(client, importId);
+    }
     if (previousImportId) {
       await client.query(
         `UPDATE catalog_imports SET status = 'superseded' WHERE id = $1`,

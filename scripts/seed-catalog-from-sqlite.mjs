@@ -22,6 +22,7 @@ import { pipeline } from "node:stream/promises";
 import pg from "pg";
 import { VENDOR_CATALOG_POSTGRES_SCHEMA_SQL } from "../lib/server/vendor-catalog/postgres-schema.mjs";
 import {
+  assertSanMarCasePriceInvariant,
   assertSSPiecePriceInvariant,
   buildParameterizedInsert,
 } from "./lib/postgres-import-helpers.mjs";
@@ -230,6 +231,26 @@ function validateManifestCounts(vendor) {
     }
   }
 
+  // SanMar case-price invariant on SQLite source: every variant must have
+  // case_price > 0, resolved_cost = case_price, cost_basis = 'casePrice'.
+  if (vendor === "sanmar") {
+    const casePriceViolations = db
+      .prepare(
+        `SELECT count(*) as cnt FROM catalog_variants
+         WHERE vendor = 'sanmar'
+           AND (case_price IS NULL OR case_price <= 0
+                OR resolved_cost != case_price
+                OR cost_basis != 'casePrice')`
+      )
+      .get().cnt;
+    if (casePriceViolations > 0) {
+      throw new Error(
+        `sanmar has ${casePriceViolations} variant(s) violating case-price invariant ` +
+          `(require case_price > 0, resolved_cost = case_price, cost_basis = 'casePrice'). Refusing seed.`
+      );
+    }
+  }
+
   console.log(`Manifest validated for ${vendor}: ${styleCount} styles, ${variantCount} variants.`);
 }
 
@@ -371,13 +392,17 @@ async function activateImports(prepared) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('cmp-vendor-catalog:activate-all'))");
 
     for (const { importId, vendor } of prepared) {
-      await assertSSPiecePriceInvariant(client, importId);
-
       const current = await client.query(
         `SELECT import_id FROM active_catalog_versions WHERE vendor = $1 FOR UPDATE`,
         [vendor]
       );
       const previousImportId = current.rows[0]?.import_id;
+      if (vendor === "ss") {
+        await assertSSPiecePriceInvariant(client, importId);
+      }
+      if (vendor === "sanmar") {
+        await assertSanMarCasePriceInvariant(client, importId);
+      }
       if (previousImportId) {
         await client.query(
           `UPDATE catalog_imports SET status = 'superseded' WHERE id = $1`,
@@ -476,6 +501,11 @@ async function validateImport(importId, vendor, styleCount, variantCount) {
     Number(checks.known_styles) < 1
   ) {
     throw new Error(`${vendor} seed failed validation: ${JSON.stringify(checks)}`);
+  }
+
+  // SanMar case-price invariant on staged PG data
+  if (vendor === "sanmar") {
+    await assertSanMarCasePriceInvariant(target, importId);
   }
 }
 

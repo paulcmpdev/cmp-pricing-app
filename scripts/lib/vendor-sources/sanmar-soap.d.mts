@@ -20,11 +20,11 @@ export interface SanMarSoapVariant {
   discontinued: boolean;
   piecePrice: number;
   dozenPrice?: number;
-  casePrice?: number;
+  casePrice: number;
   salePrice?: number;
   customerPrice?: number;
   resolvedCost: number;
-  costBasis: 'piecePrice';
+  costBasis: 'casePrice';
 }
 
 export interface SanMarSoapManifest {
