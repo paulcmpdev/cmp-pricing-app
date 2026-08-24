@@ -108,6 +108,18 @@ Mapping choices:
   with redacted per-style counts. Empty product responses for requested batches
   are incomplete. A 404 is still treated as an HTTP error unless explicit
   discontinued-style semantics are added later.
+- Operator-pinned confirmed-empty-style activation is the only S&S completeness
+  exception. It must be used only after an explicit reviewed run confirms the
+  listed S&S style IDs are expected to have no raw products. Provide all three
+  pins together: expected manifest style count, expected manifest variant count,
+  and the SHA-256 of the sorted empty style IDs joined by newline with one final
+  newline. The exception accepts only `ss_style_incomplete` reasons where
+  `rawProductCount=0` and `usableVariantCount=0`, `skippedCount=0`, exact count
+  matches, unique reason style IDs, and an exact digest match. Accepted empty
+  styles remain active but unavailable with zero active variants; source metadata
+  and the ingestion checkpoint retain the accepted empty IDs/count/digest.
+  Missing pins, partial styles, price skips, duplicate IDs, digest drift, count
+  drift, and non-S&S sources continue to fail closed.
 
 **Unknowns:**
 - Exact pagination behavior for `/styles/` (single response vs paged?)
@@ -228,6 +240,9 @@ Mapping choices:
 |----------|---------|---------|
 | `CMP_SS_ACCOUNT_NUMBER` | S&S Basic auth username | Worker only |
 | `CMP_SS_API_KEY` | S&S Basic auth password | Worker only |
+| `CMP_SS_EXPECTED_STYLE_COUNT` | Optional S&S confirmed-empty-style exception pin; must be provided with the other two S&S pins | Worker only |
+| `CMP_SS_EXPECTED_VARIANT_COUNT` | Optional S&S confirmed-empty-style exception pin; must be provided with the other two S&S pins | Worker only |
+| `CMP_SS_EXPECTED_EMPTY_STYLE_SHA256` | Optional S&S confirmed-empty-style exception pin; 64-hex SHA-256 of sorted empty style IDs plus final newline | Worker only |
 | `CMP_SANMAR_SOURCE` | Required: `soap` or `local` | Worker only |
 | `CMP_SANMAR_MODE` | Optional: `full` (default) or `delta` | Worker only |
 | `CMP_SANMAR_CUSTOMER_NUMBER` | SanMar web-service customer number | Worker only |

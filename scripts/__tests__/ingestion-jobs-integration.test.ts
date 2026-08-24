@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,6 +35,7 @@ type IngestionResult = {
   jobId: string;
   styleCount: number;
   variantCount: number;
+  skippedCount: number;
 };
 
 describe.skipIf(!runIntegration)(
@@ -158,6 +159,10 @@ describe.skipIf(!runIntegration)(
           return { rows: result.rows };
         },
       });
+    }
+
+    function ssEmptyStyleDigest(styleIds: string[]) {
+      return createHash('sha256').update(`${[...styleIds].sort().join('\n')}\n`).digest('hex');
     }
 
     async function writeSanMarFiles(epdd: string, dip: string) {
@@ -897,6 +902,81 @@ describe.skipIf(!runIntegration)(
       const cost = await repo().resolveVariantCost('ss:SS-3001-BLK-M');
       expect(cost?.unitCost).toBe(5.50);
       expect(cost?.costBasis).toBe('piecePrice');
+    });
+
+    it('activates operator-pinned S&S confirmed-empty styles as unavailable with audit metadata', async () => {
+      await resetVendor('ss');
+      const previousImportId = await seedActiveBaseline('ss', { styles: 3, variants: 5 });
+      const emptyStyle = {
+        ...SS_STYLES_RESPONSE[2],
+        styleID: 103,
+        styleName: '3001C',
+      };
+      const styles = [SS_STYLES_RESPONSE[0], SS_STYLES_RESPONSE[1], emptyStyle];
+      const products = SS_PRODUCTS_BATCH_1;
+      const digest = ssEmptyStyleDigest(['103']);
+
+      const result = await runIngestion({
+        vendor: 'ss',
+        target: pool,
+        sourceConfig: {
+          type: 'ss-api',
+          accountNumber: 'acct',
+          apiKey: 'api-key',
+          expectedEmptyStylePins: {
+            styleCount: 3,
+            variantCount: 4,
+            emptyStyleSha256: digest,
+          },
+        },
+        fetch: ssFetchFixture({ styles, products }),
+        sleep: async () => {},
+        batchSize: 2,
+        leaseOwner: 'ss-empty-style-exception-owner',
+      }) as IngestionResult;
+
+      const checks = await pool.query(
+        `SELECT
+           (SELECT import_id FROM active_catalog_versions WHERE vendor = 'ss') AS active_import_id,
+           (SELECT status FROM catalog_imports WHERE id = $1) AS previous_status,
+           (SELECT status FROM catalog_imports WHERE id = $2) AS current_status,
+           (SELECT source_errors FROM catalog_imports WHERE id = $2) AS import_source_errors,
+           (SELECT invalid_price_count FROM catalog_imports WHERE id = $2) AS invalid_price_count,
+           (SELECT source_metadata FROM catalog_imports WHERE id = $2) AS source_metadata,
+           (SELECT checkpoint FROM catalog_ingestion_jobs WHERE id = $3) AS checkpoint,
+           (SELECT active_variant_count FROM active_catalog_styles WHERE vendor = 'ss' AND source_style_id = '103') AS empty_active_variants,
+           (SELECT count(*)::int
+              FROM active_catalog_variants v
+              JOIN active_catalog_styles s ON s.id = v.style_id AND s.import_id = v.import_id
+             WHERE v.vendor = 'ss' AND s.source_style_id = '103') AS empty_variant_rows,
+           (SELECT count(*)::int FROM active_catalog_variants WHERE vendor = 'ss' AND cost_basis = 'piecePrice' AND piece_price > 0 AND resolved_cost = piece_price) AS valid_piece_rows`,
+        [previousImportId, result.importId, result.jobId]
+      );
+      const row = checks.rows[0] as any;
+      const sourceMetadata = row.source_metadata.ssEmptyStyleActivationException;
+      const checkpointException = row.checkpoint.ssEmptyStyleActivationException;
+
+      expect(result.activated).toBe(true);
+      expect(result.styleCount).toBe(3);
+      expect(result.variantCount).toBe(4);
+      expect(result.skippedCount).toBe(0);
+      expect(row.active_import_id).toBe(result.importId);
+      expect(row.previous_status).toBe('superseded');
+      expect(row.current_status).toBe('active');
+      expect(Number(row.import_source_errors)).toBe(0);
+      expect(Number(row.invalid_price_count)).toBe(0);
+      expect(Number(row.empty_active_variants)).toBe(0);
+      expect(Number(row.empty_variant_rows)).toBe(0);
+      expect(Number(row.valid_piece_rows)).toBe(4);
+      expect(sourceMetadata).toMatchObject({
+        accepted: true,
+        expectedStyleCount: 3,
+        expectedVariantCount: 4,
+        emptyStyleCount: 1,
+        emptyStyleSha256: digest,
+        emptyStyleIds: ['103'],
+      });
+      expect(checkpointException).toEqual(sourceMetadata);
     });
 
     it('keeps activated data intact after a post-activation failure and cleans a pre-activation failure', async () => {
