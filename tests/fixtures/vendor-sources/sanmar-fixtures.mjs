@@ -86,3 +86,58 @@ INV001|S01|K500|Black|M|WH1|25|11.00|132.00|9.25||9.50|2027-01-01|2027-12-31|K50
 export const DIP_ZERO_INVENTORY = `${DIP_HEADERS}
 INV001|S01|K500|Black|M|WH1|0|11.00|132.00|9.25|||||K500-BLK-M|
 `;
+
+// --- SDL_N Fixtures ---
+
+export const SDLN_HEADERS = '"UNIQUE_KEY","PRODUCT_TITLE","PRODUCT_DESCRIPTION","STYLE#","CATEGORY_NAME","COLOR_NAME","SIZE","PIECE_PRICE","DOZENS_PRICE","CASE_PRICE","INVENTORY_KEY","SIZE_INDEX","MILL","PRODUCT_STATUS","PRODUCT_IMAGE"';
+
+export const SDLN_VALID_CONTENT = `${SDLN_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","9.25","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg"
+"K500-BLK-L","Silk Touch Polo","Classic polo","K500","Polos","Black","L","11.00","10.00","9.25","INV002","2","Port Authority","Regular","https://cdn.example.com/k500.jpg"
+"PC61-NVY-M","Essential Tee","Basic tee","PC61","T-Shirts","Navy","M","4.50","4.35","4.25","INV004","1","Port & Company","New","https://cdn.example.com/pc61.jpg"
+`;
+
+export const SDLN_STATUS_CONTENT = `${SDLN_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","9.25","INV001","1","Port Authority","Regular","https://cdn.example.com/k500.jpg"
+"K500-BLK-L","Silk Touch Polo","Classic polo","K500","Polos","Black","L","11.00","10.00","9.25","INV002","2","Port Authority","Coming soon","https://cdn.example.com/k500.jpg"
+"K500-BLK-XL","Silk Touch Polo","Classic polo","K500","Polos","Black","XL","11.00","10.00","9.25","INV003","3","Port Authority","Discontinued","https://cdn.example.com/k500.jpg"
+"K500-BLK-2XL","Silk Touch Polo","Classic polo","K500","Polos","Black","2XL","11.00","10.00","9.25","INV004","4","Port Authority","CloseOut","https://cdn.example.com/k500.jpg"
+`;
+
+export const SDLN_MISSING_HEADERS = `"UNIQUE_KEY","PRODUCT_TITLE","STYLE#","CASE_PRICE"
+"K500-BLK-M","Silk Touch Polo","K500","9.25"
+`;
+
+export const SDLN_DUPLICATE_CASE_PRICE_HEADER = `"UNIQUE_KEY","PRODUCT_TITLE","PRODUCT_DESCRIPTION","STYLE#","CATEGORY_NAME","COLOR_NAME","SIZE","PIECE_PRICE","DOZENS_PRICE","CASE_PRICE","CASE_PRICE","INVENTORY_KEY","SIZE_INDEX","MILL","PRODUCT_STATUS","PRODUCT_IMAGE"
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","9.25","8.25","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg"
+`;
+
+export const SDLN_DUPLICATE_CANONICAL_ALIAS_HEADER = `"UNIQUE_KEY","PRODUCT_TITLE","PRODUCT_DESCRIPTION","STYLE#","CATEGORY_NAME","COLOR_NAME","SIZE","PIECE_PRICE","DOZENS_PRICE","CASE_PRICE","INVENTORY_KEY","SIZE_INDEX","MILL","PRODUCT_STATUS","PRODUCT_IMAGE","PRODUCT_IMAGE_URL"
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","9.25","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg","https://cdn.example.com/k500-alt.jpg"
+`;
+
+export const SDLN_UNKNOWN_STATUS = `${SDLN_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","9.25","INV001","1","Port Authority","Maybe","https://cdn.example.com/k500.jpg"
+`;
+
+export const SDLN_MALFORMED_CASE_PRICE = `${SDLN_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","USD 9.25","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg"
+`;
+
+export const SDLN_ZERO_CASE_PRICE = `${SDLN_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","0","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg"
+`;
+
+export const SDLN_DUPLICATE_CONFLICTING = `${SDLN_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","9.25","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg"
+"K500-BLK-M","Different Polo","Classic polo","K501","Polos","Black","M","11.00","10.00","9.25","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg"
+`;
+
+export const SDLN_DUPLICATE_IDENTICAL = `${SDLN_HEADERS}
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","9.25","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg"
+"K500-BLK-M","Silk Touch Polo","Classic polo","K500","Polos","Black","M","11.00","10.00","9.25","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg"
+`;
+
+export const SDLN_MALFORMED_CSV = `${SDLN_HEADERS}
+"K500-BLK-M","Silk Touch Polo,"Classic polo","K500","Polos","Black","M","11.00","10.00","9.25","INV001","1","Port Authority","Active","https://cdn.example.com/k500.jpg"
+`;

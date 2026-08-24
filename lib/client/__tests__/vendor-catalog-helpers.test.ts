@@ -27,14 +27,14 @@ describe("vendor catalog client helpers", () => {
     expect(shouldClearItemQuoteForVendorSelectionChange("manual", "catalog")).toBe(false);
   });
 
-  it("labels discontinued variants and produces a selected warning", () => {
+  it("labels discontinued variants and marks them disabled", () => {
     expect(describeVariantAvailability({ size: "L", discontinued: true })).toEqual({
       optionLabel: "L - discontinued",
-      selectedWarning: "Selected vendor variant is discontinued. Confirm availability before quoting.",
+      disabled: true,
     });
     expect(describeVariantAvailability({ size: "M", discontinued: false })).toEqual({
       optionLabel: "M",
-      selectedWarning: null,
+      disabled: false,
     });
   });
 });

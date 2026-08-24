@@ -218,7 +218,7 @@ test.describe("Quote Desk vendor catalog mode", () => {
     await expect(page.getByText("Internal Details")).toHaveCount(0);
   });
 
-  test("labels discontinued variants and warns when selected", async ({
+  test("labels discontinued variants and renders them disabled", async ({
     errorFreePage: page,
   }) => {
     await page.goto("/concepts/quote-desk");
@@ -230,9 +230,9 @@ test.describe("Quote Desk vendor catalog mode", () => {
     await expect(
       page.locator('#vendor-size option[value="ss:3001-BLK-L"]')
     ).toHaveText("L - discontinued");
-    await page.getByLabel("Size").selectOption("ss:3001-BLK-L");
     await expect(
-      page.getByText("Selected vendor variant is discontinued. Confirm availability before quoting.")
-    ).toBeVisible();
+      page.locator('#vendor-size option[value="ss:3001-BLK-L"]')
+    ).toBeDisabled();
+    await expect(page.getByLabel("Size")).toHaveValue("");
   });
 });

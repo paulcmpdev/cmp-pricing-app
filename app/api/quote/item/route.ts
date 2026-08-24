@@ -102,6 +102,18 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (resolved.discontinued) {
+      return NextResponse.json(
+        {
+          error: {
+            catalogVariantId: [
+              "Catalog variant is discontinued and cannot be quoted.",
+            ],
+          },
+        },
+        { status: 400 }
+      );
+    }
     productCost = resolved.unitCost;
     vendorCatalogProvenance = resolved;
   }

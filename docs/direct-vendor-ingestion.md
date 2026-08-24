@@ -128,6 +128,7 @@ Mapping choices:
 | EPDD: quote-encapsulated CSV, full product data | Verified (current guide) |
 | DIP: `sanmar_dip.txt`, pipe-delimited, hourly inventory + pricing | Verified |
 | DIP identity: `inventory_key + size_index = unique_key` | Verified |
+| SDL_N: `SanMar_SDL_N.csv`, quote-encapsulated no-inventory CSV with prices/status in one file | Supported as explicit `sdln` source |
 | Secure transport is SFTP/SSH at `ftp.sanmar.com:2200`; FTPS/TLS is unsupported | Verified |
 | SanMar SFTP offers legacy `ssh-rsa`/`ssh-dss` host keys; modern clients require explicit `ssh-rsa` compatibility plus fingerprint pinning | Live verified 2026-08-22 |
 | CMP web-service credentials do not authenticate to SFTP; separate file-delivery credentials are required | Live verified 2026-08-22 |
@@ -157,6 +158,31 @@ Mapping choices:
 - SanMar inventory remains unknown in SOAP catalog rows, matching the current
   validated snapshot. Add inventory through SFTP EPDD/DIP or targeted inventory
   requests; never fabricate zero inventory.
+
+**SDL_N no-inventory strategy:**
+- Use `--sanmar-source sdln --sdln-path path/to/SanMar_SDL_N.csv`; no DIP file
+  is required or read. This is a first-class normalized adapter, not the EPDD
+  diagnostic price fallback.
+- The CLI requires `--expected-source-sha256` or
+  `CMP_SANMAR_EXPECTED_SOURCE_SHA256`. That digest is the SHA-256 of the exact
+  uncompressed CSV bytes; any approved ZIP hash is checked separately by the
+  operator before extraction. A missing, malformed, or mismatched digest is
+  rejected before `runIngestion` starts database staging.
+- Required headers are `UNIQUE_KEY`, `PRODUCT_TITLE`, `PRODUCT_DESCRIPTION`,
+  `STYLE#`, `CATEGORY_NAME`, `COLOR_NAME`, `SIZE`, `PIECE_PRICE`,
+  `DOZENS_PRICE`, `CASE_PRICE`, `INVENTORY_KEY`, `SIZE_INDEX`, `MILL`,
+  `PRODUCT_STATUS`, and `PRODUCT_IMAGE`; optional extra columns are ignored.
+- Every data row must emit exactly one valid variant. Missing headers, malformed
+  CSV quoting, missing `UNIQUE_KEY`/`STYLE#`, duplicate keys, unknown or blank
+  status, malformed or non-positive `CASE_PRICE`, and any skipped row fail
+  closed.
+- Cost handling matches all other SanMar paths: `resolvedCost` is the valid
+  positive `CASE_PRICE`, `costBasis` is `casePrice`, and valid piece/dozen/case
+  prices are preserved for storage/audit. `salePrice` and `customerPrice` are
+  unset, and `inventoryQty` is unknown.
+- Status mapping is explicit: `Regular`, `Active`, and `New` remain selectable
+  with `discontinued=false`; `Coming soon`, `Discontinued`, and `CloseOut` are
+  unavailable with `discontinued=true`; unknown statuses are rejected.
 
 **Live full-catalog shadow probe (2026-08-22/23):**
 - Ran against isolated Railway database `cmp_catalog_probe`; production was not touched.
@@ -261,6 +287,11 @@ incomplete when any are present, and the orchestrator refuses activation for
 incomplete manifests. EPDD price fallback for missing DIP inventory is
 diagnostic-only when explicitly injected by tests/tools and is not a CLI
 production default.
+
+The SDL_N no-inventory parser also streams through callbacks and caps observed
+`UNIQUE_KEY` values at 250,000 by default. It computes and exposes the
+uncompressed CSV SHA-256 in the manifest/source provenance while separately
+computing the yielded-content hash used by catalog imports.
 
 ## SanMar Secure Delivery (Deferred)
 

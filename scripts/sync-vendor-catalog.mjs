@@ -3,24 +3,28 @@
  * Direct vendor catalog sync orchestrator.
  *
  * Standalone CLI/worker — no Next.js API route, no Vercel request execution.
- * Supports S&S API mode plus SanMar SOAP or local file modes.
+ * Supports S&S API mode plus SanMar SOAP, local file, or SDL_N modes.
  *
  * Usage:
  *   node scripts/sync-vendor-catalog.mjs --vendor ss
  *   node scripts/sync-vendor-catalog.mjs --vendor sanmar \
  *     --epdd-path data/epdd.csv --dip-path data/sanmar_dip.txt
+ *   node scripts/sync-vendor-catalog.mjs --vendor sanmar --sanmar-source sdln \
+ *     --sdln-path data/SanMar_SDL_N.csv --expected-source-sha256 <csv-sha256>
  *   node scripts/sync-vendor-catalog.mjs --vendor sanmar --sanmar-source soap
  *   node scripts/sync-vendor-catalog.mjs --vendor sanmar --sanmar-source soap --sanmar-mode delta
  *
  * Environment:
  *   CMP_SS_ACCOUNT_NUMBER, CMP_SS_API_KEY  — S&S credentials (worker only)
- *   CMP_SANMAR_SOURCE — required: soap or local
+ *   CMP_SANMAR_SOURCE — required: soap, local, or sdln
  *   CMP_SANMAR_CUSTOMER_NUMBER, CMP_SANMAR_USERNAME, CMP_SANMAR_PASSWORD — SOAP credentials
  *   CMP_SANMAR_EPDD_PATH, CMP_SANMAR_DIP_PATH — SanMar local file paths
+ *   CMP_SANMAR_SDLN_PATH, CMP_SANMAR_EXPECTED_SOURCE_SHA256 — SanMar SDL_N path/hash
  *   VENDOR_CATALOG_DATABASE_URL — CMP PostgreSQL target
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import pg from 'pg';
 import { VENDOR_CATALOG_POSTGRES_SCHEMA_SQL } from '../lib/server/vendor-catalog/postgres-schema.mjs';
 import {
@@ -30,7 +34,7 @@ import {
   buildParameterizedInsert,
 } from './lib/postgres-import-helpers.mjs';
 import { createSSSource } from './lib/vendor-sources/ss.mjs';
-import { ingestSanMar } from './lib/vendor-sources/sanmar.mjs';
+import { ingestSanMar, ingestSanMarSDLN } from './lib/vendor-sources/sanmar.mjs';
 import { createSanMarSoapSource, createSanMarDeltaSource } from './lib/vendor-sources/sanmar-soap.mjs';
 import { ErrorCategory, createSourceError, redactErrorSummary } from './lib/vendor-sources/contracts.mjs';
 import {
@@ -80,6 +84,20 @@ if (isDirectExecution) {
     fail('Batch size must be an integer from 1 through 1000.');
   }
 
+  if (vendor === 'sanmar') {
+    const epddPath = args['epdd-path'] ?? process.env.CMP_SANMAR_EPDD_PATH;
+    const dipPath = args['dip-path'] ?? process.env.CMP_SANMAR_DIP_PATH;
+    const sdlnPath = args['sdln-path'] ?? process.env.CMP_SANMAR_SDLN_PATH;
+    const sanmarSource = args['sanmar-source'] ?? process.env.CMP_SANMAR_SOURCE ??
+      (sdlnPath ? 'sdln' : (epddPath && dipPath ? 'local' : null));
+    if (sanmarSource === 'sdln') {
+      const expectedSourceSha256 = args['expected-source-sha256'] ?? process.env.CMP_SANMAR_EXPECTED_SOURCE_SHA256;
+      if (!expectedSourceSha256) {
+        fail('--expected-source-sha256 (or CMP_SANMAR_EXPECTED_SOURCE_SHA256) is required for SanMar SDL_N mode.');
+      }
+    }
+  }
+
   const target = new Pool({ connectionString: targetUrl, max: 4 });
   const controller = new AbortController();
 
@@ -100,19 +118,37 @@ if (isDirectExecution) {
     } else {
       const epddPath = args['epdd-path'] ?? process.env.CMP_SANMAR_EPDD_PATH;
       const dipPath = args['dip-path'] ?? process.env.CMP_SANMAR_DIP_PATH;
+      const sdlnPath = args['sdln-path'] ?? process.env.CMP_SANMAR_SDLN_PATH;
+      const expectedSourceSha256 = args['expected-source-sha256'] ?? process.env.CMP_SANMAR_EXPECTED_SOURCE_SHA256;
       const sanmarSource = args['sanmar-source'] ?? process.env.CMP_SANMAR_SOURCE ??
-        (epddPath && dipPath ? 'local' : null);
+        (sdlnPath ? 'sdln' : (epddPath && dipPath ? 'local' : null));
       if (!sanmarSource) {
-        fail('--sanmar-source (or CMP_SANMAR_SOURCE) is required for SanMar and must be soap or local.');
+        fail('--sanmar-source (or CMP_SANMAR_SOURCE) is required for SanMar and must be soap, local, or sdln.');
       }
-      if (!['soap', 'local'].includes(sanmarSource)) {
-        fail('--sanmar-source (or CMP_SANMAR_SOURCE) must be soap or local.');
+      if (!['soap', 'local', 'sdln'].includes(sanmarSource)) {
+        fail('--sanmar-source (or CMP_SANMAR_SOURCE) must be soap, local, or sdln.');
       }
       if (sanmarSource === 'local') {
         if (!epddPath || !dipPath) {
           fail('--epdd-path and --dip-path (or CMP_SANMAR_EPDD_PATH/CMP_SANMAR_DIP_PATH) required for SanMar local mode.');
         }
         sourceConfig = { type: 'sanmar-local', epddPath, dipPath };
+      } else if (sanmarSource === 'sdln') {
+        if (!sdlnPath) {
+          fail('--sdln-path (or CMP_SANMAR_SDLN_PATH) is required for SanMar SDL_N mode.');
+        }
+        if (!expectedSourceSha256) {
+          fail('--expected-source-sha256 (or CMP_SANMAR_EXPECTED_SOURCE_SHA256) is required for SanMar SDL_N mode.');
+        }
+        if (!/^[a-f0-9]{64}$/i.test(expectedSourceSha256)) {
+          fail('--expected-source-sha256 (or CMP_SANMAR_EXPECTED_SOURCE_SHA256) must be a 64-character SHA-256 hex digest.');
+        }
+        const normalizedExpectedSourceSha256 = expectedSourceSha256.toLowerCase();
+        const actualSourceSha256 = await computeFileSha256(sdlnPath);
+        if (actualSourceSha256 !== normalizedExpectedSourceSha256) {
+          fail(`SanMar SDL_N source SHA-256 mismatch: expected ${normalizedExpectedSourceSha256}, got ${actualSourceSha256}.`);
+        }
+        sourceConfig = { type: 'sanmar-sdln', sdlnPath, expectedSourceSha256: normalizedExpectedSourceSha256 };
       } else {
         const sanmarMode = args['sanmar-mode'] ?? process.env.CMP_SANMAR_MODE ?? 'full';
         if (!['full', 'delta'].includes(sanmarMode)) {
@@ -306,9 +342,17 @@ export async function runIngestion({
       `UPDATE catalog_imports
        SET status = 'validating', style_count = $2, variant_count = $3,
            invalid_price_count = $4, content_hash = $5,
-           source_completed_at = CURRENT_TIMESTAMP
+           source_completed_at = CURRENT_TIMESTAMP,
+           source_metadata = source_metadata || $6::jsonb
        WHERE id = $1`,
-      [importId, manifest.styleCount, manifest.variantCount, manifest.skippedCount, manifest.contentHash]
+      [
+        importId,
+        manifest.styleCount,
+        manifest.variantCount,
+        manifest.skippedCount,
+        manifest.contentHash,
+        JSON.stringify(buildManifestSourceMetadata(manifest)),
+      ]
     );
 
     // Update job to validating (owner-guarded)
@@ -497,6 +541,15 @@ async function ingestVendor({
       signal,
     });
     manifest = await sanmarSource.ingest({ onStyle, onVariant, shouldContinue });
+  } else if (sourceConfig.type === 'sanmar-sdln') {
+    manifest = await ingestSanMarSDLN({
+      source: sourceConfig.sdlnPath,
+      expectedSourceSha256: sourceConfig.expectedSourceSha256,
+      onStyle,
+      onVariant,
+      shouldContinue,
+      checkIntervalRows,
+    });
   } else {
     manifest = await ingestSanMar({
       epddSource: sourceConfig.epddPath,
@@ -1265,6 +1318,27 @@ function parseArgs(argv) {
     index += 1;
   }
   return result;
+}
+
+async function computeFileSha256(path) {
+  const hash = createHash('sha256');
+  await new Promise((resolve, reject) => {
+    const stream = createReadStream(path);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('error', reject);
+    stream.on('end', resolve);
+  });
+  return hash.digest('hex');
+}
+
+function buildManifestSourceMetadata(manifest) {
+  const metadata = {
+    source: manifest.source,
+    snapshotTimestamp: manifest.snapshotTimestamp,
+  };
+  if (manifest.sourceHash) metadata.sourceHash = manifest.sourceHash;
+  if (manifest.sourceSha256) metadata.sourceSha256 = manifest.sourceSha256;
+  return metadata;
 }
 
 function fail(message) {

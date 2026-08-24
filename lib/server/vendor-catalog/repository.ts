@@ -52,6 +52,7 @@ export interface CatalogVariantCostResolution {
   styleCode: string;
   color: string | null;
   size: string | null;
+  discontinued: boolean;
   unitCost: number;
   costBasis: string;
   sourceSyncAt: string | null;
@@ -273,6 +274,7 @@ export async function resolveCatalogVariantCost(
     styleCode: row.style_code,
     color: row.color,
     size: row.size,
+    discontinued: Boolean(row.discontinued),
     unitCost: Number(row.resolved_cost),
     costBasis: row.cost_basis,
     sourceSyncAt: row.source_sync_at,

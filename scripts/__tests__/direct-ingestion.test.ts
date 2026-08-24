@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { Readable } from 'node:stream';
+import { createHash } from 'node:crypto';
 import {
   ErrorCategory,
   createSourceError,
@@ -14,6 +15,7 @@ import {
   parseDIP,
   joinEPDDAndDIP,
   ingestSanMar,
+  ingestSanMarSDLN,
 } from '../lib/vendor-sources/sanmar.mjs';
 import { assertManifestCompleteForActivation } from '../sync-vendor-catalog.mjs';
 import {
@@ -44,12 +46,56 @@ import {
   DIP_ZERO_INVENTORY,
   DIP_HEADERS,
   EPDD_HEADERS,
+  SDLN_VALID_CONTENT,
+  SDLN_STATUS_CONTENT,
+  SDLN_MISSING_HEADERS,
+  SDLN_DUPLICATE_CASE_PRICE_HEADER,
+  SDLN_DUPLICATE_CANONICAL_ALIAS_HEADER,
+  SDLN_UNKNOWN_STATUS,
+  SDLN_MALFORMED_CASE_PRICE,
+  SDLN_ZERO_CASE_PRICE,
+  SDLN_DUPLICATE_CONFLICTING,
+  SDLN_DUPLICATE_IDENTICAL,
+  SDLN_MALFORMED_CSV,
 } from '../../tests/fixtures/vendor-sources/sanmar-fixtures.mjs';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 
 function streamFrom(content: string) {
   return Readable.from(content.split('\n').map((line) => line + '\n'));
+}
+
+function streamFromExact(content: string) {
+  return Readable.from([content]);
+}
+
+function sha256(content: string) {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function writeTempSDLN(content: string) {
+  const dir = mkdtempSync(join(tmpdir(), 'cmp-sdln-'));
+  const path = join(dir, 'SanMar_SDL_N.csv');
+  writeFileSync(path, content);
+  return {
+    dir,
+    path,
+    expectedSourceSha256: sha256(content),
+  };
+}
+
+async function withTempSDLN<T>(
+  content: string,
+  callback: (file: { path: string; expectedSourceSha256: string }) => Promise<T>
+) {
+  const file = writeTempSDLN(content);
+  try {
+    return await callback(file);
+  } finally {
+    rmSync(file.dir, { recursive: true, force: true });
+  }
 }
 
 // ─── Redaction ────────────────────────────────────────────────────
@@ -1951,6 +1997,339 @@ INV004|S04|PC61|Navy|M|WH1|100|4.50|54.00|4.25|||||PC61-NVY-M|
     expect(manifest.complete).toBe(false);
     expect(manifest.sourceErrors).toBeGreaterThan(0);
     expect(() => assertManifestCompleteForActivation(manifest)).toThrow(/refusing activation/i);
+  });
+});
+
+describe('SanMar SDL_N no-inventory ingestion', () => {
+  it('normalizes valid SDL_N rows with case-price cost basis and source hash provenance', async () => {
+    const styles: any[] = [];
+    const variants: any[] = [];
+    const expectedHash = sha256(SDLN_VALID_CONTENT);
+
+    const manifest = await withTempSDLN(SDLN_VALID_CONTENT, async ({ path }) => ingestSanMarSDLN({
+      source: path,
+      snapshotTime: new Date('2026-08-22T12:00:00Z'),
+      expectedSourceSha256: expectedHash,
+      onStyle: (style: any) => { styles.push(style); },
+      onVariant: (variant: any) => { variants.push(variant); },
+    }));
+
+    expect(manifest.sourceHash).toBe(expectedHash);
+    expect(manifest.sourceSha256).toBe(expectedHash);
+    expect(manifest).toMatchObject({
+      vendor: 'sanmar',
+      styleCount: 2,
+      variantCount: 3,
+      skippedCount: 0,
+      sourceErrors: 0,
+      complete: true,
+      source: 'sanmar-sdln',
+    });
+    expect(styles.map((style) => style.sourceStyleId)).toEqual(['K500', 'PC61']);
+    expect(variants[0]).toMatchObject({
+      sourceVariantId: 'K500-BLK-M',
+      sourceStyleId: 'K500',
+      styleCode: 'K500',
+      color: 'Black',
+      size: 'M',
+      sizeOrder: 1,
+      discontinued: false,
+      piecePrice: 11,
+      dozenPrice: 10,
+      casePrice: 9.25,
+      resolvedCost: 9.25,
+      costBasis: 'casePrice',
+    });
+    expect(variants[0].inventoryQty).toBeUndefined();
+    expect(variants[0].salePrice).toBeUndefined();
+    expect(variants[0].customerPrice).toBeUndefined();
+  });
+
+  it('maps selectable and unavailable SDL_N lifecycle statuses explicitly', async () => {
+    const variants: any[] = [];
+
+    await withTempSDLN(SDLN_STATUS_CONTENT, async ({ path, expectedSourceSha256 }) => ingestSanMarSDLN({
+      source: path,
+      expectedSourceSha256,
+      onStyle: () => {},
+      onVariant: (variant: any) => { variants.push(variant); },
+    }));
+
+    expect(variants.map((variant) => variant.discontinued)).toEqual([false, true, true, true]);
+  });
+
+  it('rejects missing required SDL_N headers', async () => {
+    await withTempSDLN(SDLN_MISSING_HEADERS, async ({ path, expectedSourceSha256 }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256,
+        onStyle: () => {},
+        onVariant: () => {},
+      })).rejects.toThrow(/missing required headers/i);
+    });
+  });
+
+  it('rejects duplicate canonical SDL_N headers before row mapping', async () => {
+    const onStyle = vi.fn();
+    const onVariant = vi.fn();
+
+    await withTempSDLN(SDLN_DUPLICATE_CASE_PRICE_HEADER, async ({ path, expectedSourceSha256 }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256,
+        onStyle,
+        onVariant,
+      })).rejects.toThrow(/duplicate headers: CASE_PRICE/i);
+    });
+    await withTempSDLN(SDLN_DUPLICATE_CANONICAL_ALIAS_HEADER, async ({ path, expectedSourceSha256 }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256,
+        onStyle,
+        onVariant,
+      })).rejects.toThrow(/duplicate headers: PRODUCT_IMAGE/i);
+    });
+    expect(onStyle).not.toHaveBeenCalled();
+    expect(onVariant).not.toHaveBeenCalled();
+  });
+
+  it('rejects unknown or blank SDL_N product status', async () => {
+    await withTempSDLN(SDLN_UNKNOWN_STATUS, async ({ path, expectedSourceSha256 }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256,
+        onStyle: () => {},
+        onVariant: () => {},
+      })).rejects.toThrow(/PRODUCT_STATUS/i);
+    });
+  });
+
+  it('rejects SDL_N rows with missing unique key or style', async () => {
+    const missingKey = SDLN_VALID_CONTENT.replace('"K500-BLK-M"', '""');
+    const missingStyle = SDLN_VALID_CONTENT.replace('"K500","Polos"', '"","Polos"');
+
+    await withTempSDLN(missingKey, async ({ path, expectedSourceSha256 }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256,
+        onStyle: () => {},
+        onVariant: () => {},
+      })).rejects.toThrow(/UNIQUE_KEY/i);
+    });
+    await withTempSDLN(missingStyle, async ({ path, expectedSourceSha256 }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256,
+        onStyle: () => {},
+        onVariant: () => {},
+      })).rejects.toThrow(/STYLE#/i);
+    });
+  });
+
+  it('rejects malformed, missing, zero, or negative SDL_N case prices', async () => {
+    const missingCasePrice = SDLN_MALFORMED_CASE_PRICE.replace('"USD 9.25"', '""');
+    const negativeCasePrice = SDLN_MALFORMED_CASE_PRICE.replace('"USD 9.25"', '"-1"');
+
+    for (const content of [
+      SDLN_MALFORMED_CASE_PRICE,
+      missingCasePrice,
+      SDLN_ZERO_CASE_PRICE,
+      negativeCasePrice,
+    ]) {
+      await withTempSDLN(content, async ({ path, expectedSourceSha256 }) => {
+        await expect(ingestSanMarSDLN({
+          source: path,
+          expectedSourceSha256,
+          onStyle: () => {},
+          onVariant: () => {},
+        })).rejects.toThrow(/CASE_PRICE/i);
+      });
+    }
+  });
+
+  it('rejects duplicate conflicting SDL_N unique keys', async () => {
+    await withTempSDLN(SDLN_DUPLICATE_CONFLICTING, async ({ path, expectedSourceSha256 }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256,
+        onStyle: () => {},
+        onVariant: () => {},
+      })).rejects.toThrow(/duplicate UNIQUE_KEY/i);
+    });
+  });
+
+  it('rejects duplicate identical SDL_N unique key rows', async () => {
+    await withTempSDLN(SDLN_DUPLICATE_IDENTICAL, async ({ path, expectedSourceSha256 }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256,
+        onStyle: () => {},
+        onVariant: () => {},
+      })).rejects.toThrow(/duplicate UNIQUE_KEY/i);
+    });
+  });
+
+  it('rejects malformed SDL_N CSV rows with strict quote handling', async () => {
+    await withTempSDLN(SDLN_MALFORMED_CSV, async ({ path, expectedSourceSha256 }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256,
+        onStyle: () => {},
+        onVariant: () => {},
+      })).rejects.toThrow(/CSV parse error/i);
+    });
+  });
+
+  it('rejects SDL_N expected source hash mismatches', async () => {
+    await withTempSDLN(SDLN_VALID_CONTENT, async ({ path }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256: '0'.repeat(64),
+        onStyle: () => {},
+        onVariant: () => {},
+      })).rejects.toThrow(/SHA-256 mismatch/i);
+    });
+  });
+
+  it('rejects SDL_N stream sources before invoking callbacks', async () => {
+    const onStyle = vi.fn();
+    const onVariant = vi.fn();
+    const shouldContinue = vi.fn();
+
+    await expect(
+      ingestSanMarSDLN({
+        source: streamFromExact(SDLN_VALID_CONTENT),
+        expectedSourceSha256: sha256(SDLN_VALID_CONTENT),
+        onStyle,
+        onVariant,
+        shouldContinue,
+      } as any)
+    ).rejects.toThrow(/nonempty file path string/i);
+    expect(shouldContinue).not.toHaveBeenCalled();
+    expect(onStyle).not.toHaveBeenCalled();
+    expect(onVariant).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty SDL_N source paths before invoking callbacks', async () => {
+    const onStyle = vi.fn();
+    const onVariant = vi.fn();
+    const shouldContinue = vi.fn();
+
+    await expect(
+      ingestSanMarSDLN({
+        source: '   ',
+        expectedSourceSha256: sha256(SDLN_VALID_CONTENT),
+        onStyle,
+        onVariant,
+        shouldContinue,
+      })
+    ).rejects.toThrow(/nonempty file path string/i);
+    expect(shouldContinue).not.toHaveBeenCalled();
+    expect(onStyle).not.toHaveBeenCalled();
+    expect(onVariant).not.toHaveBeenCalled();
+  });
+
+  it('rejects SDL_N ingestion when expectedSourceSha256 is missing', async () => {
+    const onStyle = vi.fn();
+    const onVariant = vi.fn();
+
+    await withTempSDLN(SDLN_VALID_CONTENT, async ({ path }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        onStyle,
+        onVariant,
+      } as any)).rejects.toThrow(/expectedSourceSha256 is required/i);
+    });
+    expect(onStyle).not.toHaveBeenCalled();
+    expect(onVariant).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed SDL_N expected source hashes before parsing rows', async () => {
+    const onStyle = vi.fn();
+    const onVariant = vi.fn();
+
+    await withTempSDLN(SDLN_VALID_CONTENT, async ({ path }) => {
+      await expect(ingestSanMarSDLN({
+        source: path,
+        expectedSourceSha256: 'not-a-sha',
+        onStyle,
+        onVariant,
+      })).rejects.toThrow(/64-character SHA-256 hex digest/i);
+    });
+    expect(onStyle).not.toHaveBeenCalled();
+    expect(onVariant).not.toHaveBeenCalled();
+  });
+
+  it('rejects path-based SDL_N hash mismatches before emitting rows', async () => {
+    const file = writeTempSDLN(SDLN_VALID_CONTENT);
+    const onStyle = vi.fn();
+    const onVariant = vi.fn();
+
+    try {
+      await expect(
+        ingestSanMarSDLN({
+          source: file.path,
+          expectedSourceSha256: '0'.repeat(64),
+          onStyle,
+          onVariant,
+        })
+      ).rejects.toThrow(/SHA-256 mismatch/i);
+      expect(onStyle).not.toHaveBeenCalled();
+      expect(onVariant).not.toHaveBeenCalled();
+    } finally {
+      rmSync(file.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('exports a dry-run SDL_N ingestion function and wires CLI source mode without DIP', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'scripts/sync-vendor-catalog.mjs'),
+      'utf8'
+    );
+
+    expect(typeof ingestSanMarSDLN).toBe('function');
+    expect(source).toContain("type: 'sanmar-sdln'");
+    expect(source).toContain('CMP_SANMAR_SDLN_PATH');
+    expect(source).toContain('CMP_SANMAR_EXPECTED_SOURCE_SHA256');
+    expect(source).toContain('computeFileSha256(sdlnPath)');
+  });
+
+  it('fails SDL_N CLI before database setup when expected source hash is missing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cmp-sdln-cli-'));
+    const path = join(dir, 'SanMar_SDL_N.csv');
+    writeFileSync(path, SDLN_VALID_CONTENT);
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          'scripts/sync-vendor-catalog.mjs',
+          '--vendor',
+          'sanmar',
+          '--sanmar-source',
+          'sdln',
+          '--sdln-path',
+          path,
+          '--target-url',
+          'postgres://cmp-invalid-localhost.invalid:5432/cmp',
+        ],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            CMP_SANMAR_EXPECTED_SOURCE_SHA256: '',
+            VENDOR_CATALOG_DATABASE_URL: '',
+          },
+          encoding: 'utf8',
+        }
+      );
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('--expected-source-sha256 (or CMP_SANMAR_EXPECTED_SOURCE_SHA256) is required for SanMar SDL_N mode.');
+      expect(result.stderr).not.toMatch(/ENOTFOUND|ECONNREFUSED|getaddrinfo|password authentication|database/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
