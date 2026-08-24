@@ -78,7 +78,7 @@ describe("PostgreSQL vendor catalog repository", () => {
         color: "Red",
         size: "L",
         resolved_cost: "9.7500",
-        cost_basis: "piecePrice",
+        cost_basis: "casePrice",
         source_sync_at: new Date("2026-06-29T17:28:34.189Z"),
       },
     ]);
@@ -92,7 +92,7 @@ describe("PostgreSQL vendor catalog repository", () => {
       color: "Red",
       size: "L",
       unitCost: 9.75,
-      costBasis: "piecePrice",
+      costBasis: "casePrice",
       sourceSyncAt: "2026-06-29T17:28:34.189Z",
     });
   });

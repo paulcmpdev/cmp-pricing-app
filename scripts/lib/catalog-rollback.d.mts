@@ -78,6 +78,8 @@ export interface RollbackState {
     storedVariantCount: number | null;
     orphanVariantCount: number;
     invalidResolvedCostCount: number;
+    ssBasisViolationCount: number;
+    sanmarCasePriceInvariantViolationCount?: number;
     nullStyleSourceSyncAtCount: number;
     nullVariantSourceSyncAtCount: number;
     knownStylePresent: boolean;

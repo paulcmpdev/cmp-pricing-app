@@ -17,8 +17,8 @@
  * no final variant array is materialized.
  *
  * Warehouse inventory is aggregated deterministically (sum by unique_key).
- * Zero inventory is preserved. Sale price is only used when documented sale
- * dates include the snapshot timestamp.
+ * Zero inventory is preserved. Sale price is preserved for audit only;
+ * CMP's SanMar resolved cost is always valid positive case_price.
  */
 
 import { createHash } from 'node:crypto';
@@ -430,7 +430,9 @@ export async function joinEPDDAndDIP(epddProducts, dipRecords, callbacks) {
       salePrice = dip.sale_price;
     } else if (allowEpddPriceFallbackMissingDip) {
       const epddPrice = parseOptionalStrictNonnegativeFloat(epdd.PIECE_PRICE);
+      const epddCasePrice = parseOptionalStrictNonnegativeFloat(epdd.CASE_PRICE);
       piecePrice = epddPrice.valid ? epddPrice.value : undefined;
+      casePrice = epddCasePrice.valid ? epddCasePrice.value : undefined;
     } else {
       missingDipCount++;
       skippedCount++;
@@ -438,16 +440,12 @@ export async function joinEPDDAndDIP(epddProducts, dipRecords, callbacks) {
       continue;
     }
 
-    // Resolve cost: salePrice (if active) > piecePrice
-    if (salePrice != null && salePrice > 0) {
-      resolvedCost = salePrice;
-      costBasis = 'salePrice';
-    } else if (piecePrice != null && piecePrice > 0) {
-      resolvedCost = piecePrice;
-      costBasis = 'piecePrice';
+    if (casePrice != null && casePrice > 0) {
+      resolvedCost = casePrice;
+      costBasis = 'casePrice';
     }
 
-    if (resolvedCost == null || !Number.isFinite(resolvedCost) || resolvedCost < 0) {
+    if (resolvedCost == null || !Number.isFinite(resolvedCost) || resolvedCost <= 0) {
       skippedCount++;
       continue;
     }

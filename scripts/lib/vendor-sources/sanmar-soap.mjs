@@ -492,7 +492,7 @@ function normalizeProductRow(row, { label, index }) {
   const size = requiredText(basic.size, 'size', label, index);
   const piecePrice = requiredPositiveNumber(price.piecePrice, 'piecePrice', label, index);
   const dozenPrice = optionalNonnegativeNumber(price.dozenPrice, 'dozenPrice', label, index);
-  const casePrice = optionalNonnegativeNumber(price.casePrice, 'casePrice', label, index);
+  const casePrice = requiredPositiveNumber(price.casePrice, 'casePrice', label, index);
   const sizeOrder = optionalInteger(basic.sizeIndex, 'sizeIndex', label, index);
   const status = normalizeProductStatus(basic.productStatus, label, index);
 
@@ -521,8 +521,8 @@ function normalizeProductRow(row, { label, index }) {
       casePrice,
       salePrice: undefined,
       customerPrice: undefined,
-      resolvedCost: piecePrice,
-      costBasis: 'piecePrice',
+      resolvedCost: casePrice,
+      costBasis: 'casePrice',
     },
   };
 }

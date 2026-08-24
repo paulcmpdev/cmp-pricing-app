@@ -626,8 +626,8 @@ describe.skipIf(!runIntegration)(
       expect(variants).toHaveLength(2);
       expect(Object.keys(variants[0]).join(' ')).not.toMatch(/cost|price|cogs/i);
       const cost = await repo().resolveVariantCost('sanmar:208283');
-      expect(cost?.unitCost).toBe(11.3);
-      expect(cost?.costBasis).toBe('piecePrice');
+      expect(cost?.unitCost).toBe(9.3);
+      expect(cost?.costBasis).toBe('casePrice');
     });
 
     it('rejects a SanMar SOAP fault, cleans staging, and preserves the prior pointer', async () => {
@@ -663,6 +663,191 @@ describe.skipIf(!runIntegration)(
       expect(checks.rows[0].staged_styles).toBe(0);
       expect(checks.rows[0].staged_variants).toBe(0);
       expect(checks.rows[0].error_summary).not.toMatch(/customer|password|response_body_sentinel/i);
+    });
+
+    it('rejects SanMar full activation when post-validation drift breaks the case-price invariant', async () => {
+      await resetVendor('sanmar');
+      const previousImportId = await seedActiveBaseline('sanmar', { styles: 1, variants: 2 });
+
+      await expect(runIngestion({
+        vendor: 'sanmar',
+        target: pool,
+        sourceConfig: {
+          type: 'sanmar-soap',
+          customerNumber: 'customer',
+          username: 'user',
+          password: 'password',
+          styleIds: ['K500'],
+          since: null,
+        },
+        fetch: sanmarSoapFetchFixture(),
+        sleep: async () => {},
+        batchSize: 10,
+        leaseOwner: 'sanmar-full-invariant-drift-owner',
+        testHooks: {
+          beforeActivation: async ({ importId }: { importId: string }) => {
+            await pool.query(
+              `UPDATE catalog_variants
+               SET resolved_cost = case_price + 1
+               WHERE import_id = $1 AND vendor = 'sanmar'`,
+              [importId]
+            );
+          },
+        },
+      })).rejects.toThrow(/case-price invariant/i);
+
+      const latest = await pool.query(
+        `SELECT import_id, status, error_summary
+         FROM catalog_ingestion_jobs
+         WHERE vendor = 'sanmar'
+         ORDER BY created_at DESC
+         LIMIT 1`
+      );
+      const checks = await pool.query(
+        `SELECT
+           (SELECT import_id FROM active_catalog_versions WHERE vendor = 'sanmar') AS active_import_id,
+           (SELECT status FROM catalog_imports WHERE id = $1) AS import_status,
+           (SELECT count(*)::int FROM catalog_styles WHERE import_id = $1) AS staged_styles,
+           (SELECT count(*)::int FROM catalog_variants WHERE import_id = $1) AS staged_variants`,
+        [latest.rows[0].import_id]
+      );
+
+      expect(latest.rows[0].status).toBe('rejected');
+      expect(latest.rows[0].error_summary).toMatch(/case-price invariant/i);
+      expect(checks.rows[0].active_import_id).toBe(previousImportId);
+      expect(checks.rows[0].import_status).toBe('rejected');
+      expect(checks.rows[0].staged_styles).toBe(0);
+      expect(checks.rows[0].staged_variants).toBe(0);
+    });
+
+    async function expectSanMarPostValidationDriftRejected(
+      leaseOwner: string,
+      beforeActivation: ({ importId }: { importId: string }) => Promise<void>
+    ) {
+      await resetVendor('sanmar');
+      const previousImportId = await seedActiveBaseline('sanmar', { styles: 1, variants: 2 });
+
+      await expect(runIngestion({
+        vendor: 'sanmar',
+        target: pool,
+        sourceConfig: {
+          type: 'sanmar-soap',
+          customerNumber: 'customer',
+          username: 'user',
+          password: 'password',
+          styleIds: ['K500'],
+          since: null,
+        },
+        fetch: sanmarSoapFetchFixture(),
+        sleep: async () => {},
+        batchSize: 10,
+        leaseOwner,
+        testHooks: { beforeActivation },
+      })).rejects.toThrow(/case-price invariant/i);
+
+      const latest = await pool.query(
+        `SELECT import_id, status, error_summary
+         FROM catalog_ingestion_jobs
+         WHERE vendor = 'sanmar'
+         ORDER BY created_at DESC
+         LIMIT 1`
+      );
+      const checks = await pool.query(
+        `SELECT
+           (SELECT import_id FROM active_catalog_versions WHERE vendor = 'sanmar') AS active_import_id,
+           (SELECT status FROM catalog_imports WHERE id = $1) AS import_status,
+           (SELECT count(*)::int FROM catalog_styles WHERE import_id = $1) AS staged_styles,
+           (SELECT count(*)::int FROM catalog_variants WHERE import_id = $1) AS staged_variants`,
+        [latest.rows[0].import_id]
+      );
+
+      expect(latest.rows[0].status).toBe('rejected');
+      expect(latest.rows[0].error_summary).toMatch(/case-price invariant/i);
+      expect(checks.rows[0].active_import_id).toBe(previousImportId);
+      expect(checks.rows[0].import_status).toBe('rejected');
+      expect(checks.rows[0].staged_styles).toBe(0);
+      expect(checks.rows[0].staged_variants).toBe(0);
+
+      return latest.rows[0].import_id as string;
+    }
+
+    it('rejects SanMar activation when post-validation drift deletes one staged variant', async () => {
+      await expectSanMarPostValidationDriftRejected(
+        'sanmar-delete-one-variant-drift-owner',
+        async ({ importId }) => {
+          await pool.query(
+            `DELETE FROM catalog_variants
+             WHERE import_id = $1
+               AND id = (
+                 SELECT id
+                 FROM catalog_variants
+                 WHERE import_id = $1
+                 ORDER BY id
+                 LIMIT 1
+               )`,
+            [importId]
+          );
+        }
+      );
+    });
+
+    it('rejects SanMar activation when post-validation drift deletes all staged variants', async () => {
+      await expectSanMarPostValidationDriftRejected(
+        'sanmar-delete-all-variants-drift-owner',
+        async ({ importId }) => {
+          await pool.query(`DELETE FROM catalog_variants WHERE import_id = $1`, [importId]);
+        }
+      );
+    });
+
+    it('rejects SanMar activation when post-validation drift relabels a staged variant away from SanMar', async () => {
+      let driftedImportId: string | null = null;
+      let droppedVendorFk = false;
+
+      try {
+        await expectSanMarPostValidationDriftRejected(
+          'sanmar-relabel-variant-drift-owner',
+          async ({ importId }) => {
+            driftedImportId = importId;
+            await pool.query(
+              `ALTER TABLE catalog_variants
+               DROP CONSTRAINT catalog_variants_import_id_vendor_fkey`
+            );
+            droppedVendorFk = true;
+            await pool.query(
+              `UPDATE catalog_variants
+               SET vendor = 'ss'
+               WHERE import_id = $1
+                 AND id = (
+                   SELECT id
+                   FROM catalog_variants
+                   WHERE import_id = $1
+                   ORDER BY id
+                   LIMIT 1
+                 )`,
+              [importId]
+            );
+          }
+        );
+      } finally {
+        if (droppedVendorFk) {
+          if (driftedImportId) {
+            await pool.query(
+              `UPDATE catalog_variants
+               SET vendor = 'sanmar'
+               WHERE import_id = $1 AND vendor <> 'sanmar'`,
+              [driftedImportId]
+            ).catch(() => {});
+          }
+          await pool.query(
+            `ALTER TABLE catalog_variants
+             ADD CONSTRAINT catalog_variants_import_id_vendor_fkey
+             FOREIGN KEY (import_id, vendor)
+             REFERENCES catalog_imports(id, vendor)
+             ON DELETE CASCADE`
+          );
+        }
+      }
     });
 
     it('runIngestion activates S&S fixtures, supersedes prior active import, has no orphans, and keeps costs server-side', async () => {
@@ -1079,6 +1264,127 @@ INV004|S04|PC61|Navy|M|WH1|100|4.50|54.00||||||PC61-NVY-M|
       expect(checks.rows[0].rejected_status).toBe('rejected');
       expect(checks.rows[0].staged_styles).toBe(0);
       expect(checks.rows[0].staged_variants).toBe(0);
+    });
+
+    async function expectSSPostValidationDriftRejected(
+      leaseOwner: string,
+      beforeActivation: ({ importId }: { importId: string }) => Promise<void>
+    ) {
+      await resetVendor('ss');
+      const priorImportId = await seedActiveBaseline('ss', { styles: 3, variants: 5 });
+
+      await expect(runIngestion({
+        vendor: 'ss',
+        target: pool,
+        sourceConfig: { type: 'ss-api', accountNumber: 'acct', apiKey: 'api-key' },
+        fetch: ssFetchFixture(),
+        sleep: async () => {},
+        batchSize: 2,
+        leaseOwner,
+        testHooks: { beforeActivation },
+      })).rejects.toThrow(/piece price activation invariant/i);
+
+      const checks = await pool.query(
+        `SELECT
+           (SELECT import_id FROM active_catalog_versions WHERE vendor = 'ss') AS active_import_id,
+           j.import_id,
+           j.status,
+           j.error_summary,
+           (SELECT status FROM catalog_imports WHERE id = j.import_id) AS rejected_status,
+           (SELECT count(*)::int FROM catalog_styles WHERE import_id = j.import_id) AS staged_styles,
+           (SELECT count(*)::int FROM catalog_variants WHERE import_id = j.import_id) AS staged_variants
+         FROM catalog_ingestion_jobs j
+         WHERE j.vendor = 'ss'
+         ORDER BY j.created_at DESC
+         LIMIT 1`
+      );
+      expect(checks.rows[0].active_import_id).toBe(priorImportId);
+      expect(checks.rows[0].status).toBe('rejected');
+      expect(checks.rows[0].error_summary).toMatch(/piece price activation invariant/i);
+      expect(checks.rows[0].rejected_status).toBe('rejected');
+      expect(checks.rows[0].staged_styles).toBe(0);
+      expect(checks.rows[0].staged_variants).toBe(0);
+
+      return checks.rows[0].import_id as string;
+    }
+
+    it('rejects S&S activation when post-validation drift deletes one staged variant', async () => {
+      await expectSSPostValidationDriftRejected(
+        'ss-delete-one-variant-drift-owner',
+        async ({ importId }) => {
+          await pool.query(
+            `DELETE FROM catalog_variants
+             WHERE import_id = $1
+               AND id = (
+                 SELECT id
+                 FROM catalog_variants
+                 WHERE import_id = $1
+                 ORDER BY id
+                 LIMIT 1
+               )`,
+            [importId]
+          );
+        }
+      );
+    });
+
+    it('rejects S&S activation when post-validation drift deletes all staged variants', async () => {
+      await expectSSPostValidationDriftRejected(
+        'ss-delete-all-variants-drift-owner',
+        async ({ importId }) => {
+          await pool.query(`DELETE FROM catalog_variants WHERE import_id = $1`, [importId]);
+        }
+      );
+    });
+
+    it('rejects S&S activation when post-validation drift relabels a staged variant away from S&S', async () => {
+      let driftedImportId: string | null = null;
+      let droppedVendorFk = false;
+
+      try {
+        await expectSSPostValidationDriftRejected(
+          'ss-relabel-variant-drift-owner',
+          async ({ importId }) => {
+            driftedImportId = importId;
+            await pool.query(
+              `ALTER TABLE catalog_variants
+               DROP CONSTRAINT catalog_variants_import_id_vendor_fkey`
+            );
+            droppedVendorFk = true;
+            await pool.query(
+              `UPDATE catalog_variants
+               SET vendor = 'sanmar'
+               WHERE import_id = $1
+                 AND id = (
+                   SELECT id
+                   FROM catalog_variants
+                   WHERE import_id = $1
+                   ORDER BY id
+                   LIMIT 1
+                 )`,
+              [importId]
+            );
+          }
+        );
+      } finally {
+        if (droppedVendorFk) {
+          if (driftedImportId) {
+            await pool.query(
+              `UPDATE catalog_variants
+               SET vendor = 'ss'
+               WHERE import_id = $1 AND vendor <> 'ss'`,
+              [driftedImportId]
+            ).catch(() => {});
+          }
+          await pool.query(
+            `ALTER TABLE catalog_variants
+             ADD CONSTRAINT catalog_variants_import_id_vendor_fkey
+             FOREIGN KEY (import_id, vendor)
+             REFERENCES catalog_imports(id, vendor)
+             ON DELETE CASCADE`
+          );
+        }
+      }
     });
 
     it('stores redacted error summaries without auth or response-body sentinels', async () => {

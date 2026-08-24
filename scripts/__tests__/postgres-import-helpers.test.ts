@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import {
   assertSSPiecePriceInvariant,
   assertSafeCatalogCounts,
+  assertSanMarCasePriceInvariant,
   buildParameterizedInsert,
   normalizeDatabaseUrlForComparison,
   PG_MAX_PARAMETERS,
@@ -15,6 +16,16 @@ import {
   SANMAR_VARIANTS_QUERY,
   INVALID_PRICE_QUERIES,
 } from "../lib/vendor-catalog-source-queries.mjs";
+
+function functionBlock(source: string, name: string): string {
+  const start = source.indexOf(`async function ${name}`);
+  if (start < 0) throw new Error(`Unable to find ${name}`);
+  const next = source.indexOf("\nasync function ", start + 1);
+  const nextSync = source.indexOf("\nfunction ", start + 1);
+  const candidates = [next, nextSync].filter((value) => value > start);
+  const end = candidates.length > 0 ? Math.min(...candidates) : source.length;
+  return source.slice(start, end);
+}
 
 describe("PostgreSQL catalog import safety", () => {
   it("declares import columns before top-level execution", () => {
@@ -150,26 +161,106 @@ describe("PostgreSQL catalog import safety", () => {
   it("assertSSPiecePriceInvariant accepts clean S&S staged rows", async () => {
     const target = {
       query: async (sql: string, params: unknown[]) => {
+        expect(sql).toContain("FROM catalog_imports");
+        expect(sql).toContain("FROM catalog_variants");
+        expect(sql).toContain("variant_count");
         expect(sql).toContain("vendor = 'ss'");
+        expect(sql).toContain("vendor IS DISTINCT FROM 'ss'");
         expect(sql).toContain("piece_price IS NULL");
         expect(sql).toContain("piece_price <= 0");
         expect(sql).toContain("resolved_cost IS DISTINCT FROM piece_price");
         expect(sql).toContain("cost_basis IS DISTINCT FROM 'piecePrice'");
         expect(params).toEqual(["import-1"]);
-        return { rows: [{ violations: 0 }] };
+        return {
+          rows: [{
+            import_exists: true,
+            import_vendor: "ss",
+            expected_variant_count: 2,
+            actual_variant_count: 2,
+            non_ss_variant_count: 0,
+            piece_price_violation_count: 0,
+          }],
+        };
       },
     };
 
     await expect(assertSSPiecePriceInvariant(target, "import-1")).resolves.toBeUndefined();
   });
 
-  it("assertSSPiecePriceInvariant rejects S&S staged rows that do not resolve to piecePrice", async () => {
+  it.each([
+    [
+      "missing import",
+      {
+        import_exists: false,
+        import_vendor: null,
+        expected_variant_count: null,
+        actual_variant_count: 0,
+        non_ss_variant_count: 0,
+        piece_price_violation_count: 0,
+      },
+    ],
+    [
+      "wrong import vendor",
+      {
+        import_exists: true,
+        import_vendor: "sanmar",
+        expected_variant_count: 1,
+        actual_variant_count: 1,
+        non_ss_variant_count: 1,
+        piece_price_violation_count: 0,
+      },
+    ],
+    [
+      "non-positive stored variant count",
+      {
+        import_exists: true,
+        import_vendor: "ss",
+        expected_variant_count: 0,
+        actual_variant_count: 0,
+        non_ss_variant_count: 0,
+        piece_price_violation_count: 0,
+      },
+    ],
+    [
+      "staged variant count mismatch",
+      {
+        import_exists: true,
+        import_vendor: "ss",
+        expected_variant_count: 2,
+        actual_variant_count: 1,
+        non_ss_variant_count: 0,
+        piece_price_violation_count: 0,
+      },
+    ],
+    [
+      "non-S&S staged variant",
+      {
+        import_exists: true,
+        import_vendor: "ss",
+        expected_variant_count: 2,
+        actual_variant_count: 2,
+        non_ss_variant_count: 1,
+        piece_price_violation_count: 0,
+      },
+    ],
+    [
+      "piece price violation",
+      {
+        import_exists: true,
+        import_vendor: "ss",
+        expected_variant_count: 2,
+        actual_variant_count: 2,
+        non_ss_variant_count: 0,
+        piece_price_violation_count: 3,
+      },
+    ],
+  ])("assertSSPiecePriceInvariant rejects %s", async (_label, row) => {
     const target = {
-      query: async () => ({ rows: [{ violations: 3 }] }),
+      query: async () => ({ rows: [row] }),
     };
 
     await expect(assertSSPiecePriceInvariant(target, "import-2")).rejects.toThrow(
-      /S&S import import-2 violates piece price activation invariant/i
+      /piece price activation invariant/i
     );
   });
 
@@ -261,7 +352,7 @@ describe("PostgreSQL catalog import safety", () => {
     );
     expect(source).toContain("assertSSPiecePriceInvariant");
     expect(source).toMatch(
-      /await validateImport\(importId, vendor, styleCount, variantCount\);\s*await assertSSPiecePriceInvariant\(target, importId\);\s*await activateImport\(importId, vendor\);/
+      /await validateImport\(importId, vendor, styleCount, variantCount\);\s*if \(vendor === "ss"\) \{\s*await assertSSPiecePriceInvariant\(target, importId\);\s*\}\s*await activateImport\(importId, vendor\);/
     );
   });
 
@@ -336,7 +427,7 @@ describe("Seed script S&S invariant enforcement", () => {
 
   it("seed activation asserts S&S invariant in the activation transaction before pointer changes", () => {
     expect(seedSource).toMatch(
-      /for \(const \{ importId, vendor \} of prepared\) \{\s*await assertSSPiecePriceInvariant\(client, importId\);\s*const current = await client.query/
+      /for \(const \{ importId, vendor \} of prepared\) \{\s*const current = await client.query[\s\S]*if \(vendor === "ss"\) \{\s*await assertSSPiecePriceInvariant\(client, importId\);\s*\}/
     );
   });
 });
@@ -385,13 +476,235 @@ describe("S&S source query price-filter contract", () => {
     expect(INVALID_PRICE_QUERIES.ss).toContain('"piecePrice" <= 0');
   });
 
-  it("SanMar styles and variants queries use the same price filter (unchanged)", () => {
-    const SANMAR_PRICE_FILTER = 'NULLIF(s."piecePrice", 0)';
+  it("SanMar styles and variants queries use the same price filter", () => {
+    const SANMAR_PRICE_FILTER = 's."casePrice" > 0';
     expect(SANMAR_STYLES_QUERY).toContain(
-      `WHERE ${SANMAR_PRICE_FILTER} IS NOT NULL`
+      `WHERE ${SANMAR_PRICE_FILTER}`
     );
     expect(SANMAR_VARIANTS_QUERY).toContain(
-      `WHERE ${SANMAR_PRICE_FILTER} IS NOT NULL`
+      `WHERE ${SANMAR_PRICE_FILTER}`
     );
+    expect(SANMAR_VARIANTS_QUERY).toContain('s."casePrice" AS resolved_cost');
+    expect(SANMAR_VARIANTS_QUERY).toContain("'casePrice' AS cost_basis");
+  });
+
+  it("SanMar invalid-price query counts null, zero, and negative casePrice", () => {
+    expect(SANMAR_STYLES_QUERY).not.toContain('NULLIF(s."casePrice", 0)');
+    expect(SANMAR_VARIANTS_QUERY).not.toContain('NULLIF(s."casePrice", 0)');
+    expect(INVALID_PRICE_QUERIES.sanmar).toContain(
+      'WHERE "casePrice" IS NULL OR "casePrice" <= 0'
+    );
+    expect(INVALID_PRICE_QUERIES.sanmar).not.toContain('NULLIF("casePrice", 0)');
+  });
+});
+
+describe("SanMar case-price invariant contract", () => {
+  it("assertSanMarCasePriceInvariant is exported", () => {
+    expect(typeof assertSanMarCasePriceInvariant).toBe("function");
+  });
+
+  it("assertSanMarCasePriceInvariant verifies import metadata and staged variants", async () => {
+    const target = {
+      query: async (sql: string, params: unknown[]) => {
+        expect(sql).toContain("FROM catalog_imports");
+        expect(sql).toContain("FROM catalog_variants");
+        expect(sql).toContain("variant_count");
+        expect(sql).toContain("vendor IS DISTINCT FROM 'sanmar'");
+        expect(sql).toContain("resolved_cost IS DISTINCT FROM case_price");
+        expect(params).toEqual(["import-1"]);
+        return {
+          rows: [{
+            import_exists: true,
+            import_vendor: "sanmar",
+            expected_variant_count: 2,
+            actual_variant_count: 2,
+            non_sanmar_variant_count: 0,
+            case_price_violation_count: 0,
+          }],
+        };
+      },
+    };
+
+    await expect(assertSanMarCasePriceInvariant(target as any, "import-1")).resolves.toBeUndefined();
+  });
+
+  it.each([
+    [
+      "missing import",
+      {
+        import_exists: false,
+        import_vendor: null,
+        expected_variant_count: null,
+        actual_variant_count: 0,
+        non_sanmar_variant_count: 0,
+        case_price_violation_count: 0,
+      },
+    ],
+    [
+      "wrong import vendor",
+      {
+        import_exists: true,
+        import_vendor: "ss",
+        expected_variant_count: 1,
+        actual_variant_count: 1,
+        non_sanmar_variant_count: 1,
+        case_price_violation_count: 0,
+      },
+    ],
+    [
+      "non-positive stored variant count",
+      {
+        import_exists: true,
+        import_vendor: "sanmar",
+        expected_variant_count: 0,
+        actual_variant_count: 0,
+        non_sanmar_variant_count: 0,
+        case_price_violation_count: 0,
+      },
+    ],
+    [
+      "staged variant count mismatch",
+      {
+        import_exists: true,
+        import_vendor: "sanmar",
+        expected_variant_count: 2,
+        actual_variant_count: 1,
+        non_sanmar_variant_count: 0,
+        case_price_violation_count: 0,
+      },
+    ],
+    [
+      "non-SanMar staged variant",
+      {
+        import_exists: true,
+        import_vendor: "sanmar",
+        expected_variant_count: 2,
+        actual_variant_count: 2,
+        non_sanmar_variant_count: 1,
+        case_price_violation_count: 0,
+      },
+    ],
+    [
+      "case price violation",
+      {
+        import_exists: true,
+        import_vendor: "sanmar",
+        expected_variant_count: 2,
+        actual_variant_count: 2,
+        non_sanmar_variant_count: 0,
+        case_price_violation_count: 1,
+      },
+    ],
+  ])("assertSanMarCasePriceInvariant rejects %s", async (_label, row) => {
+    const target = {
+      query: async () => ({ rows: [row] }),
+    };
+
+    await expect(assertSanMarCasePriceInvariant(target as any, "import-1"))
+      .rejects.toThrow(/case-price invariant/i);
+  });
+
+  it("sync-vendor-catalog validateImport calls assertSanMarCasePriceInvariant for sanmar", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/sync-vendor-catalog.mjs"),
+      "utf8"
+    );
+    expect(source).toContain("assertSanMarCasePriceInvariant");
+    expect(source).toContain("vendor === 'sanmar'");
+  });
+
+  it("seed-catalog-from-sqlite validates SanMar case-price invariant on SQLite source", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/seed-catalog-from-sqlite.mjs"),
+      "utf8"
+    );
+    expect(source).toContain("case_price IS NULL OR case_price <= 0");
+    expect(source).toContain("resolved_cost != case_price");
+    expect(source).toContain("cost_basis != 'casePrice'");
+  });
+
+  it("seed-catalog-from-sqlite validates SanMar case-price invariant on staged PG data", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/seed-catalog-from-sqlite.mjs"),
+      "utf8"
+    );
+    expect(source).toContain("assertSanMarCasePriceInvariant");
+  });
+
+  it("Vendo importer validates SanMar case-price invariant inside activation transaction", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/import-vendo-catalog-postgres.mjs"),
+      "utf8"
+    );
+    const activateBlock = functionBlock(source, "activateImport");
+    const beginPos = activateBlock.indexOf('client.query("BEGIN")');
+    const invariantPos = activateBlock.indexOf("assertSanMarCasePriceInvariant(client, importId)");
+    const supersedePos = activateBlock.indexOf("UPDATE catalog_imports SET status = 'superseded'");
+    const activatePos = activateBlock.indexOf("SET status = 'active'");
+    const pointerPos = activateBlock.indexOf("INSERT INTO active_catalog_versions");
+    expect(invariantPos).toBeGreaterThan(beginPos);
+    expect(invariantPos).toBeLessThan(supersedePos);
+    expect(invariantPos).toBeLessThan(activatePos);
+    expect(invariantPos).toBeLessThan(pointerPos);
+  });
+
+  it("Vendo importer gates SanMar case-price invariant on vendor", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/import-vendo-catalog-postgres.mjs"),
+      "utf8"
+    );
+    // Must only fire for SanMar, preserving S&S behavior byte-for-byte
+    expect(source).toMatch(/requestedVendor\s*===\s*['"]sanmar['"]/);
+  });
+
+  it("delta-clone variant INSERT...SELECT copies case_price column", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/lib/delta-clone.mjs"),
+      "utf8"
+    );
+    // The clone copies case_price; the invariant catches noncompliant rows at validation time
+    expect(source).toContain("case_price");
+  });
+
+  it("delta activation rechecks SanMar case-price invariant on the transaction client before pointer movement", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/lib/delta-clone.mjs"),
+      "utf8"
+    );
+    const activateBlock = functionBlock(source, "activateDeltaImport");
+    const invariantPos = activateBlock.indexOf("assertSanMarCasePriceInvariant(client, importId)");
+    const supersedePos = activateBlock.indexOf("UPDATE catalog_imports SET status = 'superseded'");
+    const pointerPos = activateBlock.indexOf("INSERT INTO active_catalog_versions");
+    expect(invariantPos).toBeGreaterThan(activateBlock.indexOf("currentActiveId !== baseImportId"));
+    expect(invariantPos).toBeLessThan(supersedePos);
+    expect(invariantPos).toBeLessThan(pointerPos);
+  });
+
+  it("direct sync activation rechecks SanMar case-price invariant on the transaction client before pointer movement", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/sync-vendor-catalog.mjs"),
+      "utf8"
+    );
+    const activateBlock = functionBlock(source, "activateImport");
+    const invariantPos = activateBlock.indexOf("assertSanMarCasePriceInvariant(client, importId)");
+    const supersedePos = activateBlock.indexOf("UPDATE catalog_imports SET status = 'superseded'");
+    const pointerPos = activateBlock.indexOf("INSERT INTO active_catalog_versions");
+    expect(invariantPos).toBeGreaterThan(activateBlock.indexOf("client.query('BEGIN')"));
+    expect(invariantPos).toBeLessThan(supersedePos);
+    expect(invariantPos).toBeLessThan(pointerPos);
+  });
+
+  it("SQLite seed activation rechecks SanMar case-price invariant on the transaction client before pointer movement", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/seed-catalog-from-sqlite.mjs"),
+      "utf8"
+    );
+    const activateBlock = functionBlock(source, "activateImports");
+    const invariantPos = activateBlock.indexOf("assertSanMarCasePriceInvariant(client, importId)");
+    const supersedePos = activateBlock.indexOf("UPDATE catalog_imports SET status = 'superseded'");
+    const pointerPos = activateBlock.indexOf("INSERT INTO active_catalog_versions");
+    expect(invariantPos).toBeGreaterThan(activateBlock.indexOf('client.query("BEGIN")'));
+    expect(invariantPos).toBeLessThan(supersedePos);
+    expect(invariantPos).toBeLessThan(pointerPos);
   });
 });

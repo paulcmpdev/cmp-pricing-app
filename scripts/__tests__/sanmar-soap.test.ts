@@ -92,8 +92,8 @@ describe('SanMar SOAP product adapter', () => {
       piecePrice: 11.3,
       dozenPrice: 10.3,
       casePrice: 9.3,
-      resolvedCost: 11.3,
-      costBasis: 'piecePrice',
+      resolvedCost: 9.3,
+      costBasis: 'casePrice',
       discontinued: false,
     });
     expect(result.variants[1].discontinued).toBe(true);
@@ -170,10 +170,22 @@ describe('SanMar SOAP product adapter', () => {
       .toThrow(/uniqueKey/i);
   });
 
-  it('rejects invalid or zero piece prices', () => {
-    const malformed = PRODUCT_RESPONSE.replace('<piecePrice>11.30</piecePrice>', '<piecePrice>0</piecePrice>');
+  it('rejects missing, malformed, zero, or negative case prices', () => {
+    const missing = PRODUCT_RESPONSE.replace('<casePrice>9.30</casePrice>', '<casePrice></casePrice>');
+    expect(() => parseSanMarProductInfoResponse(missing, { brand: 'Port Authority' }))
+      .toThrow(/casePrice/i);
+
+    const malformed = PRODUCT_RESPONSE.replace('<casePrice>9.30</casePrice>', '<casePrice>USD 9.30</casePrice>');
     expect(() => parseSanMarProductInfoResponse(malformed, { brand: 'Port Authority' }))
-      .toThrow(/piecePrice/i);
+      .toThrow(/casePrice/i);
+
+    const zero = PRODUCT_RESPONSE.replace('<casePrice>9.30</casePrice>', '<casePrice>0</casePrice>');
+    expect(() => parseSanMarProductInfoResponse(zero, { brand: 'Port Authority' }))
+      .toThrow(/casePrice/i);
+
+    const negative = PRODUCT_RESPONSE.replace('<casePrice>9.30</casePrice>', '<casePrice>-1</casePrice>');
+    expect(() => parseSanMarProductInfoResponse(negative, { brand: 'Port Authority' }))
+      .toThrow(/casePrice/i);
   });
 
   it('rejects unknown product statuses', () => {

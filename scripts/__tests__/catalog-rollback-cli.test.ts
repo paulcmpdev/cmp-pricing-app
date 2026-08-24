@@ -349,8 +349,8 @@ describe.skipIf(!TEST_PG_URL)("catalog rollback CLI PostgreSQL", () => {
         await setup.query(
           `INSERT INTO catalog_variants
              (import_id, id, style_id, vendor, source_variant_id, style_code,
-              resolved_cost, cost_basis, source_sync_at)
-           VALUES ($1, $2, $3, 'sanmar', $4, 'K500', 12.34, 'piecePrice', CURRENT_TIMESTAMP)`,
+              resolved_cost, cost_basis, case_price, source_sync_at)
+           VALUES ($1, $2, $3, 'sanmar', $4, 'K500', 12.34, 'casePrice', 12.34, CURRENT_TIMESTAMP)`,
           [id, `sanmar:${suffix}:variant`, `sanmar:${suffix}:style`, suffix]
         );
       }

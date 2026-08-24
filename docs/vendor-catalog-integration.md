@@ -26,7 +26,7 @@ The snapshot is useful for a proof, but it is not current enough to silently tre
 6. Resolve cost again on the server when a quote request submits a canonical variant ID.
 7. Use conservative default cost bases:
    - S&S: `piecePrice` (the regular S&S price). `customerPrice` and `salePrice` are stored for audit only.
-   - SanMar: `piecePrice`.
+   - SanMar: `casePrice`.
 8. Return cost basis and snapshot provenance only in Manager quote responses.
 9. Mark stale source snapshots visibly. Do not label snapshot inventory or prices as live.
 10. A future saved quote must persist supplier, source variant ID, style, color, size, resolved unit cost, cost basis, source sync timestamp, and quote timestamp.

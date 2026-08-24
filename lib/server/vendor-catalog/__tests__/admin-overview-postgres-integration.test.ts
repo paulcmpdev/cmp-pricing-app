@@ -60,13 +60,20 @@ describe.skipIf(!runIntegration)("admin catalog overview PostgreSQL integration"
     await pool.query(
       `INSERT INTO catalog_variants
          (import_id, id, style_id, vendor, source_variant_id, style_code,
-          resolved_cost, cost_basis)
+          piece_price, resolved_cost, cost_basis)
        VALUES
-         ($1, 'ss:3001-BLK-M', 'ss:3001', 'ss', '3001-BLK-M', '3001', 5.00, 'piecePrice'),
-         ($1, 'ss:3001-BLK-L', 'ss:3001', 'ss', '3001-BLK-L', '3001', 5.20, 'piecePrice'),
-         ($2, 'sanmar:K500-RED-M', 'sanmar:K500', 'sanmar', 'K500-RED-M', 'K500', 9.75, 'piecePrice'),
-         ($2, 'sanmar:K500-RED-L', 'sanmar:K500', 'sanmar', 'K500-RED-L', 'K500', 9.75, 'piecePrice')`,
-      [ssImportId, sanmarImportId]
+         ($1, 'ss:3001-BLK-M', 'ss:3001', 'ss', '3001-BLK-M', '3001', 5.00, 5.00, 'piecePrice'),
+         ($1, 'ss:3001-BLK-L', 'ss:3001', 'ss', '3001-BLK-L', '3001', 5.20, 5.20, 'piecePrice')`,
+      [ssImportId]
+    );
+    await pool.query(
+      `INSERT INTO catalog_variants
+         (import_id, id, style_id, vendor, source_variant_id, style_code,
+          case_price, resolved_cost, cost_basis)
+       VALUES
+         ($1, 'sanmar:K500-RED-M', 'sanmar:K500', 'sanmar', 'K500-RED-M', 'K500', 9.25, 9.25, 'casePrice'),
+         ($1, 'sanmar:K500-RED-L', 'sanmar:K500', 'sanmar', 'K500-RED-L', 'K500', 9.25, 9.25, 'casePrice')`,
+      [sanmarImportId]
     );
 
     for (let n = 1; n <= 12; n += 1) {

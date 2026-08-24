@@ -68,6 +68,7 @@ function safeState(
       orphanVariantCount: 0,
       invalidResolvedCostCount: 0,
       ssBasisViolationCount: 0,
+      sanmarCasePriceInvariantViolationCount: 0,
       nullStyleSourceSyncAtCount: 0,
       nullVariantSourceSyncAtCount: 0,
       knownStylePresent: true,
@@ -241,6 +242,7 @@ describe("inspectRollbackState", () => {
       orphan_variant_count: "0",
       invalid_resolved_cost_count: "0",
       ss_basis_violation_count: "0",
+      case_price_invariant_violation_count: "7",
       null_style_source_sync_at_count: "0",
       null_variant_source_sync_at_count: "0",
       known_style_present: true,
@@ -275,12 +277,14 @@ describe("inspectRollbackState", () => {
     for (const [sql, params] of query.mock.calls) {
       expect(sql).not.toContain(CURRENT_ID);
       expect(sql).not.toContain(TARGET_ID);
-      expect(sql).not.toContain("sanmar");
       expect(sql).toMatch(/\$[123]/);
       expect(params).toEqual(expect.any(Array));
       expect(sql).not.toMatch(/\b(INSERT|UPDATE|DELETE|LOCK|FOR\s+UPDATE)\b/i);
     }
     expect(query.mock.calls[0][1]).toEqual(["sanmar", CURRENT_ID, TARGET_ID, "K500"]);
+    expect(query.mock.calls[0][0]).toContain("vs.case_price_invariant_violation_count");
+    expect(query.mock.calls[0][0]).toContain("WHERE $1 = 'ss' AND v.vendor = 'ss'");
+    expect(query.mock.calls[0][0]).toContain("WHERE $1 = 'sanmar'");
     expect(query.mock.calls[1][1]).toEqual(["sanmar"]);
     expect(query.mock.calls[1][0]).toContain("LIMIT 3");
     expect(state).toEqual({
@@ -299,6 +303,7 @@ describe("inspectRollbackState", () => {
         orphanVariantCount: 0,
         invalidResolvedCostCount: 0,
         ssBasisViolationCount: 0,
+        sanmarCasePriceInvariantViolationCount: 7,
         nullStyleSourceSyncAtCount: 0,
         nullVariantSourceSyncAtCount: 0,
         knownStylePresent: true,
@@ -334,6 +339,7 @@ describe("inspectRollbackState", () => {
       stored_variant_count: 100,
       orphan_variant_count: "0",
       invalid_resolved_cost_count: "0",
+      case_price_invariant_violation_count: "0",
       null_style_source_sync_at_count: "0",
       null_variant_source_sync_at_count: "0",
       known_style_present: true,
@@ -365,6 +371,7 @@ describe("inspectRollbackState", () => {
       stored_variant_count: 100,
       orphan_variant_count: "0",
       invalid_resolved_cost_count: "0",
+      case_price_invariant_violation_count: "0",
       null_style_source_sync_at_count: "0",
       null_variant_source_sync_at_count: "0",
       known_style_present: true,
@@ -413,6 +420,37 @@ describe("inspectRollbackState", () => {
     expect(state.nonTerminalJobs).toEqual({ count: 0, statuses: [] });
   });
 
+  it("fails closed when the SanMar preflight result omits the case-price invariant count", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rows: [{
+          live_import_id: CURRENT_ID,
+          live_import_status: "active",
+          target_exists: true,
+          target_vendor: "sanmar",
+          target_status: "superseded",
+          actual_style_count: "20",
+          actual_variant_count: "100",
+          stored_style_count: 20,
+          stored_variant_count: 100,
+          orphan_variant_count: "0",
+          invalid_resolved_cost_count: "0",
+          null_style_source_sync_at_count: "0",
+          null_variant_source_sync_at_count: "0",
+          known_style_present: true,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      inspectRollbackState(
+        { query },
+        { vendor: "sanmar", expectedCurrentImportId: CURRENT_ID, targetImportId: TARGET_ID }
+      )
+    ).rejects.toThrowError("Rollback inspection error: invalid database result");
+  });
+
   it.each([
     ["actual_style_count", null],
     ["actual_variant_count", "not-a-count"],
@@ -436,6 +474,7 @@ describe("inspectRollbackState", () => {
       stored_variant_count: 100,
       orphan_variant_count: "0",
       invalid_resolved_cost_count: "0",
+      case_price_invariant_violation_count: "0",
       null_style_source_sync_at_count: "0",
       null_variant_source_sync_at_count: "0",
       known_style_present: true,
@@ -666,7 +705,7 @@ describe("assertRollbackStateSafe", () => {
         vendor: "ss",
         target: { ...safeState().target, vendor: "ss", ssBasisViolationCount: 1 },
       });
-      expect(() => assertRollbackStateSafe(state)).toThrow(/S&S.*cost basis/i);
+      expect(() => assertRollbackStateSafe(state)).toThrow(/S&S piece price activation invariant/i);
     });
 
     it("accepts S&S target with zero basis violations and returns ssBasisViolationCount", () => {
@@ -736,12 +775,26 @@ describe("executeCatalogRollback transaction setup", () => {
               stored_variant_count: 100,
               orphan_variant_count: "0",
               invalid_resolved_cost_count: "0",
+              case_price_invariant_violation_count: "0",
               null_style_source_sync_at_count: "0",
               null_variant_source_sync_at_count: "0",
               known_style_present: true,
               target_source_sync_at: null,
               target_activated_at: null,
               target_imported_at: new Date("2026-08-01T11:55:00Z"),
+            }],
+            rowCount: 1,
+          };
+        }
+        if (/case_price/i.test(sql) && /cost_basis/i.test(sql)) {
+          return {
+            rows: [{
+              import_exists: true,
+              import_vendor: "sanmar",
+              expected_variant_count: 100,
+              actual_variant_count: 100,
+              non_sanmar_variant_count: 0,
+              case_price_violation_count: 0,
             }],
             rowCount: 1,
           };
@@ -770,5 +823,161 @@ describe("executeCatalogRollback transaction setup", () => {
       { sql: expect.stringMatching(/pg_advisory_xact_lock/i), params: ["cmp-ingestion-lease:sanmar"] },
       { sql: expect.stringMatching(/pg_advisory_xact_lock/i), params: ["cmp-vendor-catalog:sanmar"] },
     ]);
+  });
+
+  it("issues the SanMar case-price invariant query in-transaction before pointer movement", async () => {
+    const calls: Array<{ sql: string; params?: readonly unknown[] }> = [];
+    const client = {
+      async query(sql: string, params?: readonly unknown[]) {
+        calls.push({ sql, params });
+        if (/SELECT import_id FROM active_catalog_versions/i.test(sql)) {
+          return { rows: [{ import_id: CURRENT_ID }], rowCount: 1 };
+        }
+        if (/SELECT id, vendor, status FROM catalog_imports/i.test(sql)) {
+          return { rows: [{ id: CURRENT_ID }, { id: TARGET_ID }], rowCount: 2 };
+        }
+        if (/WITH target AS/i.test(sql)) {
+          return {
+            rows: [{
+              live_import_id: CURRENT_ID,
+              live_import_status: "active",
+              target_exists: true,
+              target_vendor: "sanmar",
+              target_status: "superseded",
+              actual_style_count: "20",
+              actual_variant_count: "100",
+              stored_style_count: 20,
+              stored_variant_count: 100,
+              orphan_variant_count: "0",
+              invalid_resolved_cost_count: "0",
+              case_price_invariant_violation_count: "0",
+              null_style_source_sync_at_count: "0",
+              null_variant_source_sync_at_count: "0",
+              known_style_present: true,
+              target_source_sync_at: null,
+              target_activated_at: null,
+              target_imported_at: new Date("2026-08-01T11:55:00Z"),
+            }],
+            rowCount: 1,
+          };
+        }
+        if (/FROM catalog_ingestion_jobs/i.test(sql)) return { rows: [], rowCount: 0 };
+        if (/case_price/i.test(sql)) {
+          return {
+            rows: [{
+              import_exists: true,
+              import_vendor: "sanmar",
+              expected_variant_count: 100,
+              actual_variant_count: 100,
+              non_sanmar_variant_count: 0,
+              case_price_violation_count: 0,
+            }],
+            rowCount: 1,
+          };
+        }
+        if (/INSERT INTO catalog_rollbacks/i.test(sql)) {
+          return { rows: [{ rolled_back_at: new Date("2026-08-23T12:00:00Z") }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: /UPDATE/i.test(sql) ? 1 : 0 };
+      },
+      release: vi.fn(),
+    };
+
+    await executeCatalogRollback({ connect: async () => client }, {
+      vendor: "sanmar",
+      expectedCurrentImportId: CURRENT_ID,
+      targetImportId: TARGET_ID,
+      requestedBy: "Operator",
+      reason: "Restore known-good catalog",
+    });
+
+    const casePriceQuery = calls.find(
+      (c) => /case_price/i.test(c.sql) && /cost_basis/i.test(c.sql) && c.params?.[0] === TARGET_ID
+    );
+    expect(casePriceQuery).toBeDefined();
+    expect(casePriceQuery!.params).toEqual([TARGET_ID]);
+
+    // Must occur after integrity check and before pointer update
+    const casePriceIndex = calls.indexOf(casePriceQuery!);
+    const integrityIndex = calls.findIndex((c) => /WITH target AS/i.test(c.sql));
+    const pointerIndex = calls.findIndex((c) => /UPDATE active_catalog_versions/i.test(c.sql));
+    expect(casePriceIndex).toBeGreaterThan(integrityIndex);
+    expect(casePriceIndex).toBeLessThan(pointerIndex);
+  });
+
+  it("does not issue the SanMar case-price invariant query for SS rollbacks", async () => {
+    const SS_CURRENT = "33333333-3333-4333-8333-333333333333";
+    const SS_TARGET = "44444444-4444-4444-8444-444444444444";
+    const calls: Array<{ sql: string; params?: readonly unknown[] }> = [];
+    const client = {
+      async query(sql: string, params?: readonly unknown[]) {
+        calls.push({ sql, params });
+        if (/SELECT import_id FROM active_catalog_versions/i.test(sql)) {
+          return { rows: [{ import_id: SS_CURRENT }], rowCount: 1 };
+        }
+        if (/SELECT id, vendor, status FROM catalog_imports/i.test(sql)) {
+          return { rows: [{ id: SS_CURRENT }, { id: SS_TARGET }], rowCount: 2 };
+        }
+        if (/WITH target AS/i.test(sql)) {
+          return {
+            rows: [{
+              live_import_id: SS_CURRENT,
+              live_import_status: "active",
+              target_exists: true,
+              target_vendor: "ss",
+              target_status: "superseded",
+              actual_style_count: "20",
+              actual_variant_count: "100",
+              stored_style_count: 20,
+              stored_variant_count: 100,
+              orphan_variant_count: "0",
+              invalid_resolved_cost_count: "0",
+              ss_basis_violation_count: "0",
+              null_style_source_sync_at_count: "0",
+              null_variant_source_sync_at_count: "0",
+              known_style_present: true,
+              target_source_sync_at: null,
+              target_activated_at: null,
+              target_imported_at: new Date("2026-08-01T11:55:00Z"),
+            }],
+            rowCount: 1,
+          };
+        }
+        if (/FROM catalog_ingestion_jobs/i.test(sql)) return { rows: [], rowCount: 0 };
+        if (/piece_price/i.test(sql) && /cost_basis/i.test(sql)) {
+          return {
+            rows: [{
+              import_exists: true,
+              import_vendor: "ss",
+              expected_variant_count: 100,
+              actual_variant_count: 100,
+              non_ss_variant_count: 0,
+              piece_price_violation_count: 0,
+            }],
+            rowCount: 1,
+          };
+        }
+        if (/INSERT INTO catalog_rollbacks/i.test(sql)) {
+          return { rows: [{ rolled_back_at: new Date("2026-08-23T12:00:00Z") }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: /UPDATE/i.test(sql) ? 1 : 0 };
+      },
+      release: vi.fn(),
+    };
+
+    await executeCatalogRollback({ connect: async () => client }, {
+      vendor: "ss",
+      expectedCurrentImportId: SS_CURRENT,
+      targetImportId: SS_TARGET,
+      requestedBy: "Operator",
+      reason: "Restore known-good catalog",
+    });
+
+    expect(
+      calls.some((c) => /case_price/i.test(c.sql) && /cost_basis/i.test(c.sql) && c.params?.[0] === SS_TARGET)
+    ).toBe(false);
+    expect(
+      calls.some((c) => /piece_price/i.test(c.sql) && /cost_basis/i.test(c.sql) && c.params?.[0] === SS_TARGET)
+    ).toBe(true);
   });
 });

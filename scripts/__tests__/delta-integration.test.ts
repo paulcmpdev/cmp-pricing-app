@@ -99,6 +99,76 @@ describe.skipIf(!runIntegration)(
         sourceVariantId: string;
         color: string;
         size: string;
+        casePrice: number;
+        piecePrice?: number;
+      }>;
+    }>) {
+      const importId = randomUUID();
+      let styleCount = 0;
+      let variantCount = 0;
+
+      await pool.query(
+        `INSERT INTO catalog_imports (
+           id, vendor, status, source_status, source_errors,
+           style_count, variant_count, invalid_price_count, activated_at, content_hash
+         ) VALUES ($1, 'sanmar', 'active', 'direct', 0, 0, 0, 0, CURRENT_TIMESTAMP, 'seed')`,
+        [importId]
+      );
+
+      for (const style of styles) {
+        const id = `sanmar:${style.sourceStyleId}`;
+        styleCount++;
+        await pool.query(
+          `INSERT INTO catalog_styles (
+             import_id, id, vendor, source_style_id, style_code, brand, name,
+             category, description, image_url, active_variant_count, source_sync_at
+           ) VALUES ($1, $2, 'sanmar', $3, $4, $5, $6, 'Test', NULL, NULL, $7,
+                     '2026-08-20T00:00:00Z')`,
+          [importId, id, style.sourceStyleId, style.styleCode,
+           style.brand, `${style.brand} ${style.styleCode}`, style.variants.length]
+        );
+        for (const v of style.variants) {
+          variantCount++;
+          const cp = v.casePrice;
+          const pp = v.piecePrice ?? cp;
+          await pool.query(
+            `INSERT INTO catalog_variants (
+               import_id, id, style_id, vendor, source_variant_id, style_code,
+               color, size, size_order, inventory_qty, image_url, discontinued,
+               piece_price, dozen_price, case_price, sale_price, customer_price,
+               resolved_cost, cost_basis, source_sync_at
+             ) VALUES ($1, $2, $3, 'sanmar', $4, $5, $6, $7, NULL, NULL, NULL, FALSE,
+                       $8, NULL, $9, NULL, NULL, $9, 'casePrice',
+                       '2026-08-20T00:00:00Z')`,
+            [importId, `sanmar:${v.sourceVariantId}`, id,
+             v.sourceVariantId, style.styleCode, v.color, v.size, pp, cp]
+          );
+        }
+      }
+
+      await pool.query(
+        `UPDATE catalog_imports SET style_count = $2, variant_count = $3 WHERE id = $1`,
+        [importId, styleCount, variantCount]
+      );
+      await pool.query(
+        `INSERT INTO active_catalog_versions (vendor, import_id)
+         VALUES ('sanmar', $1)
+         ON CONFLICT (vendor) DO UPDATE SET import_id = EXCLUDED.import_id, activated_at = CURRENT_TIMESTAMP`,
+        [importId]
+      );
+
+      return importId;
+    }
+
+    /** Seed with legacy piecePrice-based cost (noncompliant with case-price invariant). */
+    async function seedLegacyPiecePriceImport(styles: Array<{
+      sourceStyleId: string;
+      styleCode: string;
+      brand: string;
+      variants: Array<{
+        sourceVariantId: string;
+        color: string;
+        size: string;
         piecePrice: number;
       }>;
     }>) {
@@ -195,14 +265,14 @@ describe.skipIf(!runIntegration)(
         {
           sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
           variants: [
-            { sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 10.00 },
-            { sourceVariantId: '208284', color: 'Black', size: 'L', piecePrice: 10.00 },
+            { sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 10.00 },
+            { sourceVariantId: '208284', color: 'Black', size: 'L', casePrice: 10.00 },
           ],
         },
         {
           sourceStyleId: 'PC61', styleCode: 'PC61', brand: 'Port & Company',
           variants: [
-            { sourceVariantId: 'PC61-NVY-M', color: 'Navy', size: 'M', piecePrice: 4.50 },
+            { sourceVariantId: 'PC61-NVY-M', color: 'Navy', size: 'M', casePrice: 4.50 },
           ],
         },
       ]);
@@ -270,13 +340,13 @@ describe.skipIf(!runIntegration)(
       expect(k500Variants.rows).toHaveLength(2);
       expect(new Date(k500Variants.rows[0].source_sync_at).toISOString()).not.toBe('2026-08-20T00:00:00.000Z');
 
-      // K500 variant should have updated price from SOAP (11.30 not 10.00)
+      // K500 variant should have updated cost from SOAP casePrice (9.30 not 10.00)
       const k500Cost = await pool.query(
         `SELECT resolved_cost FROM catalog_variants
          WHERE import_id = $1 AND source_variant_id = '208283'`,
         [result.importId]
       );
-      expect(Number(k500Cost.rows[0].resolved_cost)).toBe(11.3);
+      expect(Number(k500Cost.rows[0].resolved_cost)).toBe(9.3);
     });
 
     it('removes confirmed-unavailable style and preserves rest', async () => {
@@ -285,31 +355,31 @@ describe.skipIf(!runIntegration)(
         {
           sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
           variants: [
-            { sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 11.30 },
+            { sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 11.30 },
           ],
         },
         {
           sourceStyleId: '2700', styleCode: '2700', brand: 'SanMar',
           variants: [
-            { sourceVariantId: '2700-BLK-M', color: 'Black', size: 'M', piecePrice: 5.00 },
+            { sourceVariantId: '2700-BLK-M', color: 'Black', size: 'M', casePrice: 5.00 },
           ],
         },
         {
           sourceStyleId: 'PC61', styleCode: 'PC61', brand: 'Port & Company',
           variants: [
-            { sourceVariantId: 'PC61-NVY-M', color: 'Navy', size: 'M', piecePrice: 4.50 },
+            { sourceVariantId: 'PC61-NVY-M', color: 'Navy', size: 'M', casePrice: 4.50 },
           ],
         },
         {
           sourceStyleId: 'L500', styleCode: 'L500', brand: 'Port Authority',
           variants: [
-            { sourceVariantId: 'L500-BLK-M', color: 'Black', size: 'M', piecePrice: 10.00 },
+            { sourceVariantId: 'L500-BLK-M', color: 'Black', size: 'M', casePrice: 10.00 },
           ],
         },
         {
           sourceStyleId: 'PC54', styleCode: 'PC54', brand: 'Port & Company',
           variants: [
-            { sourceVariantId: 'PC54-WHT-L', color: 'White', size: 'L', piecePrice: 3.50 },
+            { sourceVariantId: 'PC54-WHT-L', color: 'White', size: 'L', casePrice: 3.50 },
           ],
         },
       ]);
@@ -363,7 +433,7 @@ describe.skipIf(!runIntegration)(
         {
           sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
           variants: [
-            { sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 11.30 },
+            { sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 11.30 },
           ],
         },
       ]);
@@ -397,7 +467,7 @@ describe.skipIf(!runIntegration)(
       await resetVendor();
       await seedActiveImport([{
         sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
-        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 11.30 }],
+        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 11.30 }],
       }]);
 
       await expect(runDeltaIngestion({
@@ -449,7 +519,7 @@ describe.skipIf(!runIntegration)(
       await resetVendor();
       const baseImportId = await seedActiveImport([{
         sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
-        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 11.30 }],
+        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 11.30 }],
       }]);
 
       const faultResponse = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><S:Fault><faultcode>S:Server</faultcode><faultstring>Internal failure</faultstring></S:Fault></S:Body></S:Envelope>`;
@@ -500,7 +570,7 @@ describe.skipIf(!runIntegration)(
       await resetVendor();
       const baseImportId = await seedActiveImport([{
         sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
-        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 11.30 }],
+        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 11.30 }],
       }]);
 
       await expect(runDeltaIngestion({
@@ -535,11 +605,11 @@ describe.skipIf(!runIntegration)(
     it('rejects confirmed removals that exceed the final count-drop guard', async () => {
       await resetVendor();
       const baseImportId = await seedActiveImport([
-        { sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority', variants: [{ sourceVariantId: 'K500-M', color: 'Black', size: 'M', piecePrice: 11.30 }] },
-        { sourceStyleId: '2700', styleCode: '2700', brand: 'SanMar', variants: [{ sourceVariantId: '2700-M', color: 'Black', size: 'M', piecePrice: 5.00 }] },
-        { sourceStyleId: '2701', styleCode: '2701', brand: 'SanMar', variants: [{ sourceVariantId: '2701-M', color: 'Black', size: 'M', piecePrice: 5.00 }] },
-        { sourceStyleId: 'PC61', styleCode: 'PC61', brand: 'Port & Company', variants: [{ sourceVariantId: 'PC61-M', color: 'Navy', size: 'M', piecePrice: 4.50 }] },
-        { sourceStyleId: 'L500', styleCode: 'L500', brand: 'Port Authority', variants: [{ sourceVariantId: 'L500-M', color: 'Black', size: 'M', piecePrice: 10.00 }] },
+        { sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority', variants: [{ sourceVariantId: 'K500-M', color: 'Black', size: 'M', casePrice: 11.30 }] },
+        { sourceStyleId: '2700', styleCode: '2700', brand: 'SanMar', variants: [{ sourceVariantId: '2700-M', color: 'Black', size: 'M', casePrice: 5.00 }] },
+        { sourceStyleId: '2701', styleCode: '2701', brand: 'SanMar', variants: [{ sourceVariantId: '2701-M', color: 'Black', size: 'M', casePrice: 5.00 }] },
+        { sourceStyleId: 'PC61', styleCode: 'PC61', brand: 'Port & Company', variants: [{ sourceVariantId: 'PC61-M', color: 'Navy', size: 'M', casePrice: 4.50 }] },
+        { sourceStyleId: 'L500', styleCode: 'L500', brand: 'Port Authority', variants: [{ sourceVariantId: 'L500-M', color: 'Black', size: 'M', casePrice: 10.00 }] },
       ]);
 
       await expect(runDeltaIngestion({
@@ -565,7 +635,7 @@ describe.skipIf(!runIntegration)(
       await resetVendor();
       const baseImportId = await seedActiveImport([{
         sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
-        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 11.30 }],
+        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 11.30 }],
       }]);
 
       const controller = new AbortController();
@@ -622,7 +692,7 @@ describe.skipIf(!runIntegration)(
       await resetVendor();
       const baseImportId = await seedActiveImport([{
         sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
-        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 11.30 }],
+        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 11.30 }],
       }]);
 
       await expect(runDeltaIngestion({
@@ -664,7 +734,7 @@ describe.skipIf(!runIntegration)(
       await resetVendor();
       const baseImportId = await seedActiveImport([{
         sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
-        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 11.30 }],
+        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 11.30 }],
       }]);
 
       await expect(runDeltaIngestion({
@@ -703,6 +773,138 @@ describe.skipIf(!runIntegration)(
           },
         },
       })).rejects.toThrow(/pointer drift/i);
+    });
+
+    it('rejects delta activation when post-validation drift breaks the case-price invariant', async () => {
+      await resetVendor();
+      const baseImportId = await seedActiveImport([{
+        sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
+        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', casePrice: 11.30 }],
+      }]);
+
+      await expect(runDeltaIngestion({
+        vendor: 'sanmar',
+        target: pool,
+        sourceConfig: {
+          type: 'sanmar-soap-delta',
+          customerNumber: 'customer',
+          username: 'user',
+          password: 'password',
+          baseImportId,
+          since: '2026-08-20T00:00:00.000Z',
+        },
+        fetch: deltaFetch(DISCOVERY_EMPTY, {}),
+        sleep: async () => {},
+        batchSize: 10,
+        leaseOwner: 'delta-invariant-drift-test',
+        testHooks: {
+          beforeActivation: async ({ importId }: { importId: string }) => {
+            await pool.query(
+              `UPDATE catalog_variants
+               SET cost_basis = 'piecePrice'
+               WHERE import_id = $1 AND vendor = 'sanmar'`,
+              [importId]
+            );
+          },
+        },
+      })).rejects.toThrow(/case-price invariant/i);
+
+      const pointer = await pool.query(
+        `SELECT import_id FROM active_catalog_versions WHERE vendor = 'sanmar'`
+      );
+      expect(pointer.rows[0].import_id).toBe(baseImportId);
+
+      const latest = await pool.query(
+        `SELECT import_id, status, error_summary
+         FROM catalog_ingestion_jobs
+         WHERE vendor = 'sanmar'
+         ORDER BY created_at DESC
+         LIMIT 1`
+      );
+      const staged = await pool.query(
+        `SELECT
+           (SELECT status FROM catalog_imports WHERE id = $1) AS import_status,
+           (SELECT count(*)::int FROM catalog_styles WHERE import_id = $1) AS staged_styles,
+           (SELECT count(*)::int FROM catalog_variants WHERE import_id = $1) AS staged_variants`,
+        [latest.rows[0].import_id]
+      );
+      expect(latest.rows[0].status).toBe('rejected');
+      expect(latest.rows[0].error_summary).toMatch(/case-price invariant/i);
+      expect(staged.rows[0].import_status).toBe('rejected');
+      expect(staged.rows[0].staged_styles).toBe(0);
+      expect(staged.rows[0].staged_variants).toBe(0);
+    });
+
+    it('rejects activation when empty discovery clones legacy piecePrice baseline', async () => {
+      await resetVendor();
+      const baseImportId = await seedLegacyPiecePriceImport([{
+        sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
+        variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 11.30 }],
+      }]);
+
+      await expect(runDeltaIngestion({
+        vendor: 'sanmar',
+        target: pool,
+        sourceConfig: {
+          type: 'sanmar-soap-delta',
+          customerNumber: 'customer',
+          username: 'user',
+          password: 'password',
+          baseImportId,
+          since: '2026-08-20T00:00:00.000Z',
+        },
+        fetch: deltaFetch(DISCOVERY_EMPTY, {}),
+        sleep: async () => {},
+        batchSize: 10,
+        leaseOwner: 'delta-legacy-empty-test',
+      })).rejects.toThrow(/case-price invariant/i);
+
+      // Active pointer must be preserved
+      const pointer = await pool.query(
+        `SELECT import_id FROM active_catalog_versions WHERE vendor = 'sanmar'`
+      );
+      expect(pointer.rows[0].import_id).toBe(baseImportId);
+    });
+
+    it('rejects activation when discovery leaves a legacy piecePrice row unchanged', async () => {
+      await resetVendor();
+      // PC61 has legacy piecePrice; K500 will be patched with compliant SOAP data.
+      const baseImportId = await seedLegacyPiecePriceImport([
+        {
+          sourceStyleId: 'K500', styleCode: 'K500', brand: 'Port Authority',
+          variants: [{ sourceVariantId: '208283', color: 'Black', size: 'M', piecePrice: 10.00 }],
+        },
+        {
+          sourceStyleId: 'PC61', styleCode: 'PC61', brand: 'Port & Company',
+          variants: [{ sourceVariantId: 'PC61-NVY-M', color: 'Navy', size: 'M', piecePrice: 4.50 }],
+        },
+      ]);
+
+      // Discover K500 only; PC61 is unchanged (still legacy piecePrice)
+      await expect(runDeltaIngestion({
+        vendor: 'sanmar',
+        target: pool,
+        sourceConfig: {
+          type: 'sanmar-soap-delta',
+          customerNumber: 'customer',
+          username: 'user',
+          password: 'password',
+          baseImportId,
+          since: '2026-08-20T00:00:00.000Z',
+        },
+        fetch: deltaFetch(DISCOVERY_K500, {
+          K500: { productResponse: SANMAR_SOAP_PRODUCT_RESPONSE },
+        }),
+        sleep: async () => {},
+        batchSize: 10,
+        leaseOwner: 'delta-legacy-unchanged-test',
+      })).rejects.toThrow(/case-price invariant/i);
+
+      // Active pointer must be preserved
+      const pointer = await pool.query(
+        `SELECT import_id FROM active_catalog_versions WHERE vendor = 'sanmar'`
+      );
+      expect(pointer.rows[0].import_id).toBe(baseImportId);
     });
   }
 );

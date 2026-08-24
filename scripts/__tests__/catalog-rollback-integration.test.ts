@@ -99,8 +99,8 @@ describe.skipIf(!runIntegration)('atomic catalog rollback integration', () => {
       await pool.query(
         `INSERT INTO catalog_variants
            (import_id, id, style_id, vendor, source_variant_id, style_code,
-            resolved_cost, cost_basis, source_sync_at)
-         VALUES ($1, $2, $3, $4, $5, 'K500', 12.34, 'piecePrice', CURRENT_TIMESTAMP)`,
+            resolved_cost, cost_basis, case_price, source_sync_at)
+         VALUES ($1, $2, $3, $4, $5, 'K500', 12.34, 'casePrice', 12.34, CURRENT_TIMESTAMP)`,
         [importId, `${vendor}:${suffix}:variant`, `${vendor}:${suffix}:style`, vendor, `${suffix}:variant`]
       );
     }
@@ -237,7 +237,7 @@ describe.skipIf(!runIntegration)('atomic catalog rollback integration', () => {
     const before = await snapshot();
     await expectRejectedWithoutSecrets(
       executeCatalogRollback(pool, ssOptions(seed)),
-      /cost basis/i
+      /piece price activation invariant/i
     );
     expect(await snapshot()).toEqual(before);
   });
@@ -247,7 +247,7 @@ describe.skipIf(!runIntegration)('atomic catalog rollback integration', () => {
     const before = await snapshot();
     await expectRejectedWithoutSecrets(
       executeCatalogRollback(pool, ssOptions(seed)),
-      /resolved costs/i
+      /piece price activation invariant/i
     );
     expect(await snapshot()).toEqual(before);
   });
@@ -257,7 +257,7 @@ describe.skipIf(!runIntegration)('atomic catalog rollback integration', () => {
     const before = await snapshot();
     await expectRejectedWithoutSecrets(
       executeCatalogRollback(pool, ssOptions(seed)),
-      /cost basis/i
+      /piece price activation invariant/i
     );
     expect(await snapshot()).toEqual(before);
   });
@@ -610,5 +610,105 @@ describe.skipIf(!runIntegration)('atomic catalog rollback integration', () => {
     const state = await snapshot();
     expect(state.audits).toHaveLength(1);
     expect(state.pointer).toEqual([{ vendor: 'sanmar', import_id: seed.targetId }]);
+  });
+
+  async function seedCasePricePair(overrides: {
+    targetCostBasis?: string;
+    targetCasePrice?: number | null;
+    targetResolvedCost?: number;
+  } = {}): Promise<Seed> {
+    const currentId = randomUUID();
+    const targetId = randomUUID();
+    const costBasis = overrides.targetCostBasis ?? 'casePrice';
+    const casePrice = overrides.targetCasePrice === undefined ? 12.34 : overrides.targetCasePrice;
+    const resolvedCost = overrides.targetResolvedCost ?? 12.34;
+    await pool.query(
+      `INSERT INTO catalog_imports
+         (id, vendor, status, source_status, source_sync_at, activated_at,
+          style_count, variant_count, source_metadata)
+       VALUES
+         ($1, 'sanmar', 'active', 'ok', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1, 1,
+          '{}'::jsonb),
+         ($2, 'sanmar', 'superseded', 'ok', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1, 1,
+          '{}'::jsonb)`,
+      [currentId, targetId]
+    );
+    await pool.query(
+      `INSERT INTO active_catalog_versions (vendor, import_id) VALUES ('sanmar', $1)`,
+      [currentId]
+    );
+    for (const [importId, suffix, cb, cp, rc] of [
+      [currentId, 'current', 'casePrice', 12.34, 12.34],
+      [targetId, 'target', costBasis, casePrice, resolvedCost],
+    ] as const) {
+      await pool.query(
+        `INSERT INTO catalog_styles
+           (import_id, id, vendor, source_style_id, style_code, name, active_variant_count, source_sync_at)
+         VALUES ($1, $2, 'sanmar', $3, 'K500', $3, 1, CURRENT_TIMESTAMP)`,
+        [importId, `sanmar:${suffix}:style`, `${suffix}:style`]
+      );
+      await pool.query(
+        `INSERT INTO catalog_variants
+           (import_id, id, style_id, vendor, source_variant_id, style_code,
+            resolved_cost, cost_basis, case_price, source_sync_at)
+         VALUES ($1, $2, $3, 'sanmar', $4, 'K500', $5, $6, $7, CURRENT_TIMESTAMP)`,
+        [importId, `sanmar:${suffix}:variant`, `sanmar:${suffix}:style`, `${suffix}:variant`, rc, cb, cp]
+      );
+    }
+    return { currentId, targetId };
+  }
+
+  it('rejects rollback to SanMar target with piecePrice basis without changing state', async () => {
+    const seed = await seedCasePricePair({ targetCostBasis: 'piecePrice' });
+    const before = await snapshot();
+    await expectRejectedWithoutSecrets(
+      executeCatalogRollback(pool, options(seed)),
+      /case-price invariant/i
+    );
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('rejects rollback to SanMar target with null case_price without changing state', async () => {
+    const seed = await seedCasePricePair({ targetCasePrice: null });
+    const before = await snapshot();
+    await expectRejectedWithoutSecrets(
+      executeCatalogRollback(pool, options(seed)),
+      /case-price invariant/i
+    );
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('rejects rollback to SanMar target with zero case_price without changing state', async () => {
+    const seed = await seedCasePricePair({ targetCasePrice: 0, targetResolvedCost: 0 });
+    const before = await snapshot();
+    await expectRejectedWithoutSecrets(
+      executeCatalogRollback(pool, options(seed)),
+      /case-price invariant/i
+    );
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('rejects rollback to SanMar target with resolved_cost != case_price without changing state', async () => {
+    const seed = await seedCasePricePair({ targetResolvedCost: 99.99 });
+    const before = await snapshot();
+    await expectRejectedWithoutSecrets(
+      executeCatalogRollback(pool, options(seed)),
+      /case-price invariant/i
+    );
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('accepts rollback to SanMar target with valid casePrice data', async () => {
+    const seed = await seedCasePricePair();
+    const result = await executeCatalogRollback(pool, options(seed));
+    expect(result).toMatchObject({
+      rolledBack: true,
+      vendor: 'sanmar',
+      fromImportId: seed.currentId,
+      toImportId: seed.targetId,
+    });
+    const after = await snapshot();
+    expect(after.pointer).toEqual([{ vendor: 'sanmar', import_id: seed.targetId }]);
+    expect(after.audits).toHaveLength(1);
   });
 });

@@ -61,6 +61,12 @@ describe("Vendo catalog importer contract", () => {
     expect(sql).toMatch(/COUNT\s*\(\s*s\."uniqueKey"\s*\)::int\s+active_variant_count/i);
   });
 
+  it("requires positive SanMar casePrice for styles, variants, and invalid-price counts", () => {
+    expect(sqlBlock("sanmarStyles")).toMatch(/WHERE\s+s\."casePrice"\s*>\s*0/i);
+    expect(sqlBlock("sanmarVariants")).toMatch(/WHERE\s+s\."casePrice"\s*>\s*0/i);
+    expect(sqlBlock("invalidSanmar")).toMatch(/WHERE\s+"casePrice"\s+IS\s+NULL\s+OR\s+"casePrice"\s*<=\s*0/i);
+  });
+
   it("builds a temporary snapshot and atomically replaces the active file", () => {
     expect(source).toMatch(/renameSync\(importPath, output\)/);
     expect(source).toMatch(/const importPath/);

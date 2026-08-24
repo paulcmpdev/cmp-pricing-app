@@ -3,6 +3,7 @@ import pg from "pg";
 import { randomUUID } from "node:crypto";
 import { VENDOR_CATALOG_POSTGRES_SCHEMA_SQL } from "../postgres-schema.mjs";
 import { createPostgresVendorCatalogRepository } from "../postgres-repository";
+import { assertSanMarCasePriceInvariant } from "../../../../scripts/lib/postgres-import-helpers.mjs";
 
 const TEST_PG_URL = process.env.VENDOR_CATALOG_TEST_DATABASE_URL;
 const runIntegration = TEST_PG_URL != null && TEST_PG_URL.length > 0;
@@ -75,9 +76,9 @@ describe.skipIf(!runIntegration)(
         [sanmarImportId]
       );
       await pool.query(
-        `INSERT INTO catalog_variants (import_id, id, style_id, vendor, source_variant_id, style_code, color, size, size_order, inventory_qty, image_url, discontinued, resolved_cost, cost_basis)
-         VALUES ($1, 'sanmar:K500-RED-M', 'sanmar:K500', 'sanmar', 'K500-RED-M', 'K500', 'Red', 'M', 20, NULL, NULL, false, 9.75, 'piecePrice'),
-                ($1, 'sanmar:K500-RED-L', 'sanmar:K500', 'sanmar', 'K500-RED-L', 'K500', 'Red', 'L', 30, NULL, NULL, false, 9.75, 'piecePrice')`,
+        `INSERT INTO catalog_variants (import_id, id, style_id, vendor, source_variant_id, style_code, color, size, size_order, inventory_qty, image_url, discontinued, case_price, resolved_cost, cost_basis)
+         VALUES ($1, 'sanmar:K500-RED-M', 'sanmar:K500', 'sanmar', 'K500-RED-M', 'K500', 'Red', 'M', 20, NULL, NULL, false, 9.25, 9.25, 'casePrice'),
+                ($1, 'sanmar:K500-RED-L', 'sanmar:K500', 'sanmar', 'K500-RED-L', 'K500', 'Red', 'L', 30, NULL, NULL, false, 9.25, 9.25, 'casePrice')`,
         [sanmarImportId]
       );
     });
@@ -487,8 +488,8 @@ describe.skipIf(!runIntegration)(
       expect(cost).toMatchObject({
         variantId: "sanmar:K500-RED-L",
         vendor: "sanmar",
-        unitCost: 9.75,
-        costBasis: "piecePrice",
+        unitCost: 9.25,
+        costBasis: "casePrice",
       });
     });
 
@@ -669,6 +670,137 @@ describe.skipIf(!runIntegration)(
       expect(Number((variantResult.rows[0] as { cnt: number }).cnt)).toBe(0);
 
       await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [cascadeImportId]);
+    });
+  }
+);
+
+describe.skipIf(!runIntegration)(
+  "SanMar case-price invariant",
+  () => {
+    let pool: pg.Pool;
+    let adminPool: pg.Pool;
+    const invariantSchema = `test_sanmar_inv_${process.pid}_${randomUUID().replaceAll("-", "_")}`;
+
+    beforeAll(async () => {
+      adminPool = new pg.Pool({ connectionString: TEST_PG_URL, max: 1 });
+      await adminPool.query(`CREATE SCHEMA ${invariantSchema}`);
+      pool = new pg.Pool({
+        connectionString: TEST_PG_URL,
+        max: 2,
+        options: `-c search_path=${invariantSchema}`,
+      });
+      await pool.query(VENDOR_CATALOG_POSTGRES_SCHEMA_SQL);
+    });
+
+    afterAll(async () => {
+      if (pool) await pool.end();
+      if (adminPool) {
+        await adminPool.query(`DROP SCHEMA IF EXISTS ${invariantSchema} CASCADE`);
+        await adminPool.end();
+      }
+    });
+
+    async function seedVariant(importId: string, overrides: {
+      casePrice?: number | null;
+      resolvedCost?: number;
+      costBasis?: string;
+    }) {
+      const id = `sanmar:INV-${randomUUID().slice(0, 8)}`;
+      await pool.query(
+        `INSERT INTO catalog_imports (id, vendor, status, source_status, source_errors, variant_count)
+         VALUES ($1, 'sanmar', 'building', 'direct', 0, 1)
+         ON CONFLICT (id) DO NOTHING`,
+        [importId]
+      );
+      await pool.query(
+        `INSERT INTO catalog_styles (import_id, id, vendor, source_style_id, style_code, brand, name, active_variant_count)
+         VALUES ($1, $2, 'sanmar', 'K500', 'K500', 'Port Authority', 'Polo', 1)
+         ON CONFLICT (import_id, id) DO NOTHING`,
+        [importId, `sanmar:K500`]
+      );
+      await pool.query(
+        `INSERT INTO catalog_variants (
+           import_id, id, style_id, vendor, source_variant_id, style_code,
+           color, size, discontinued,
+           case_price, resolved_cost, cost_basis
+         ) VALUES ($1, $2, 'sanmar:K500', 'sanmar', $3, 'K500',
+                   'Black', 'M', FALSE,
+                   $4, $5, $6)`,
+        [
+          importId, id, id,
+          overrides.casePrice ?? null,
+          overrides.resolvedCost ?? 9.25,
+          overrides.costBasis ?? 'casePrice',
+        ]
+      );
+    }
+
+    it("passes for compliant variant (case_price > 0, resolved_cost = case_price, cost_basis = casePrice)", async () => {
+      const importId = randomUUID();
+      await seedVariant(importId, { casePrice: 9.25, resolvedCost: 9.25, costBasis: "casePrice" });
+      await expect(assertSanMarCasePriceInvariant(pool, importId)).resolves.not.toThrow();
+      await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [importId]);
+    });
+
+    it("rejects null case_price", async () => {
+      const importId = randomUUID();
+      await seedVariant(importId, { casePrice: null, resolvedCost: 9.25, costBasis: "casePrice" });
+      await expect(assertSanMarCasePriceInvariant(pool, importId)).rejects.toThrow(/case-price invariant/i);
+      await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [importId]);
+    });
+
+    it("rejects zero case_price", async () => {
+      const importId = randomUUID();
+      await seedVariant(importId, { casePrice: 0, resolvedCost: 0, costBasis: "casePrice" });
+      await expect(assertSanMarCasePriceInvariant(pool, importId)).rejects.toThrow(/case-price invariant/i);
+      await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [importId]);
+    });
+
+    it("rejects negative case_price", async () => {
+      const importId = randomUUID();
+      // resolved_cost CHECK constraint requires >= 0, so use 1.0 for resolved_cost
+      await seedVariant(importId, { casePrice: -1, resolvedCost: 1.0, costBasis: "casePrice" });
+      await expect(assertSanMarCasePriceInvariant(pool, importId)).rejects.toThrow(/case-price invariant/i);
+      await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [importId]);
+    });
+
+    it("rejects mismatched resolved_cost vs case_price", async () => {
+      const importId = randomUUID();
+      await seedVariant(importId, { casePrice: 9.25, resolvedCost: 11.30, costBasis: "casePrice" });
+      await expect(assertSanMarCasePriceInvariant(pool, importId)).rejects.toThrow(/case-price invariant/i);
+      await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [importId]);
+    });
+
+    it("rejects wrong cost_basis", async () => {
+      const importId = randomUUID();
+      await seedVariant(importId, { casePrice: 9.25, resolvedCost: 9.25, costBasis: "piecePrice" });
+      await expect(assertSanMarCasePriceInvariant(pool, importId)).rejects.toThrow(/case-price invariant/i);
+      await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [importId]);
+    });
+
+    it("rejects a non-SanMar import when the SanMar invariant helper is misapplied", async () => {
+      const importId = randomUUID();
+      await pool.query(
+        `INSERT INTO catalog_imports (id, vendor, status, source_status, source_errors, variant_count)
+         VALUES ($1, 'ss', 'building', 'direct', 0, 1)`,
+        [importId]
+      );
+      await pool.query(
+        `INSERT INTO catalog_styles (import_id, id, vendor, source_style_id, style_code, brand, name, active_variant_count)
+         VALUES ($1, 'ss:3001', 'ss', '3001', '3001', 'BELLA+CANVAS', 'Tee', 1)`,
+        [importId]
+      );
+      await pool.query(
+        `INSERT INTO catalog_variants (
+           import_id, id, style_id, vendor, source_variant_id, style_code,
+           color, size, discontinued, piece_price, resolved_cost, cost_basis
+         ) VALUES ($1, 'ss:3001-BLK-M', 'ss:3001', 'ss', '3001-BLK-M', '3001',
+                   'Black', 'M', FALSE, 5.00, 5.00, 'piecePrice')`,
+        [importId]
+      );
+      // Call sites must scope this helper to SanMar imports.
+      await expect(assertSanMarCasePriceInvariant(pool, importId)).rejects.toThrow(/case-price invariant/i);
+      await pool.query(`DELETE FROM catalog_imports WHERE id = $1`, [importId]);
     });
   }
 );

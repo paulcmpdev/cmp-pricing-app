@@ -151,6 +151,9 @@ Mapping choices:
 - Pace requests, reject DTD/entity declarations, parse namespace-aware XML,
   bound response size/time/retries, and fail closed on faults, vendor errors,
   malformed/unpriced rows, conflicting duplicates, or broad count drops.
+- CMP resolves SanMar cost from valid positive `casePrice` only. Preserve
+  piece/dozen/case/sale fields for audit, but never fall back to sale or piece
+  price when `casePrice` is missing, malformed, zero, or negative.
 - SanMar inventory remains unknown in SOAP catalog rows, matching the current
   validated snapshot. Add inventory through SFTP EPDD/DIP or targeted inventory
   requests; never fabricate zero inventory.

@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import {
+  assertSanMarCasePriceInvariant,
+  assertSSPiecePriceInvariant,
+} from "./postgres-import-helpers.mjs";
 
 const FLAGS = new Set([
   "--vendor",
@@ -123,11 +127,21 @@ WITH target AS (
          count(*) FILTER (WHERE v.source_sync_at IS NULL)::bigint AS null_variant_source_sync_at_count,
          count(*) FILTER (WHERE v.resolved_cost IS NULL OR v.resolved_cost <= 0)::bigint AS invalid_resolved_cost_count,
          count(*) FILTER (WHERE s.id IS NULL)::bigint AS orphan_variant_count,
-         count(*) FILTER (WHERE $1 = 'ss' AND (
+         count(*) FILTER (WHERE $1 = 'ss' AND v.vendor = 'ss' AND (
            v.piece_price IS NULL OR v.piece_price <= 0 OR
            v.cost_basis IS DISTINCT FROM 'piecePrice' OR
            v.resolved_cost IS DISTINCT FROM v.piece_price
-         ))::bigint AS ss_basis_violation_count
+         ))::bigint AS ss_basis_violation_count,
+         count(*) FILTER (
+           WHERE $1 = 'sanmar'
+             AND v.vendor = 'sanmar'
+             AND (
+               v.case_price IS NULL
+               OR v.case_price <= 0
+               OR v.resolved_cost IS DISTINCT FROM v.case_price
+               OR v.cost_basis IS DISTINCT FROM 'casePrice'
+             )
+         )::bigint AS case_price_invariant_violation_count
     FROM catalog_variants v
     LEFT JOIN catalog_styles s ON s.import_id = v.import_id AND s.id = v.style_id
    WHERE v.import_id = $3
@@ -144,6 +158,7 @@ SELECT l.import_id AS live_import_id,
        vs.orphan_variant_count,
        vs.invalid_resolved_cost_count,
        vs.ss_basis_violation_count,
+       vs.case_price_invariant_violation_count,
        ss.null_style_source_sync_at_count,
        vs.null_variant_source_sync_at_count,
        coalesce(ss.known_style_present, false) AS known_style_present,
@@ -233,9 +248,10 @@ export async function inspectRollbackState(queryable, options) {
   const targetExists = row.target_exists === true;
   const ssBasisViolationCount = options.vendor === "ss"
     ? databaseCount(row.ss_basis_violation_count)
-    : row.ss_basis_violation_count == null
-      ? 0
-      : databaseCount(row.ss_basis_violation_count);
+    : 0;
+  const sanmarCasePriceInvariantViolationCount = options.vendor === "sanmar"
+    ? databaseCount(row.case_price_invariant_violation_count)
+    : 0;
   const jobRows = jobsResult.rows;
   if (!Array.isArray(jobRows) || jobRows.length > 3) inspectionError();
   const seenStatuses = new Set();
@@ -276,6 +292,7 @@ export async function inspectRollbackState(queryable, options) {
       orphanVariantCount: databaseCount(row.orphan_variant_count),
       invalidResolvedCostCount: databaseCount(row.invalid_resolved_cost_count),
       ssBasisViolationCount,
+      sanmarCasePriceInvariantViolationCount,
       nullStyleSourceSyncAtCount: databaseCount(row.null_style_source_sync_at_count),
       nullVariantSourceSyncAtCount: databaseCount(row.null_variant_source_sync_at_count),
       knownStylePresent: row.known_style_present === true,
@@ -382,6 +399,8 @@ export function assertRollbackStateSafe(state) {
   if (jobTotal !== jobs.count) safetyError("ingestion job summary is invalid");
   if (jobTotal > 0) safetyError("an active non-terminal ingestion job exists");
 
+  const sanmarCasePriceInvariantViolationCount =
+    target.sanmarCasePriceInvariantViolationCount ?? 0;
   const countFields = [
     target.actualStyleCount,
     target.actualVariantCount,
@@ -389,6 +408,7 @@ export function assertRollbackStateSafe(state) {
     target.storedVariantCount,
     target.orphanVariantCount,
     target.invalidResolvedCostCount,
+    sanmarCasePriceInvariantViolationCount,
     target.nullStyleSourceSyncAtCount,
     target.nullVariantSourceSyncAtCount,
   ];
@@ -399,9 +419,12 @@ export function assertRollbackStateSafe(state) {
   if (target.actualStyleCount === 0) safetyError("target catalog has zero styles");
   if (target.actualVariantCount === 0) safetyError("target catalog has zero variants");
   if (target.orphanVariantCount !== 0) safetyError("target catalog contains orphan variants");
-  if (target.invalidResolvedCostCount !== 0) safetyError("target catalog contains null, zero, or negative resolved costs");
   const ssBasisViolationCount = vendor === "ss" ? target.ssBasisViolationCount : 0;
-  if (ssBasisViolationCount !== 0) safetyError("target catalog contains S&S variants with invalid cost basis");
+  if (ssBasisViolationCount !== 0) safetyError("target catalog violates S&S piece price activation invariant");
+  if (vendor === "sanmar" && sanmarCasePriceInvariantViolationCount !== 0) {
+    safetyError("target catalog violates SanMar case-price invariant");
+  }
+  if (target.invalidResolvedCostCount !== 0) safetyError("target catalog contains null, zero, or negative resolved costs");
   if (target.nullStyleSourceSyncAtCount !== 0) safetyError("target catalog has null style source timestamps");
   if (target.nullVariantSourceSyncAtCount !== 0) safetyError("target catalog has null variant source timestamps");
   if (target.knownStylePresent !== true) safetyError("target catalog is missing the known style");
@@ -426,6 +449,7 @@ export function assertRollbackStateSafe(state) {
       orphanVariantCount: target.orphanVariantCount,
       invalidResolvedCostCount: target.invalidResolvedCostCount,
       ssBasisViolationCount,
+      sanmarCasePriceInvariantViolationCount,
       nullStyleSourceSyncAtCount: target.nullStyleSourceSyncAtCount,
       nullVariantSourceSyncAtCount: target.nullVariantSourceSyncAtCount,
       knownStylePresent: target.knownStylePresent,
@@ -540,6 +564,20 @@ export async function executeCatalogRollback(targetPool, options) {
 
     const safe = assertRollbackStateSafe(await inspectRollbackState(client, input));
     await phase("afterIntegrityCheck");
+    if (input.vendor === "ss") {
+      try {
+        await assertSSPiecePriceInvariant(client, input.targetImportId);
+      } catch {
+        safetyError("target catalog violates S&S piece price activation invariant");
+      }
+    }
+    if (input.vendor === "sanmar") {
+      try {
+        await assertSanMarCasePriceInvariant(client, input.targetImportId);
+      } catch {
+        safetyError("target catalog violates SanMar case-price invariant");
+      }
+    }
 
     await phase("beforeCurrentUpdate");
     requireOne(await client.query(

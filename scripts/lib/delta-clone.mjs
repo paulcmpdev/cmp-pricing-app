@@ -8,6 +8,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { assertSanMarCasePriceInvariant } from './postgres-import-helpers.mjs';
 
 /**
  * Clone the active import for a vendor into a new import record.
@@ -377,6 +378,10 @@ export async function activateDeltaImport(target, {
       throw new Error(
         `Delta activation pointer drift: active import changed from ${baseImportId} to ${currentActiveId} during processing`
       );
+    }
+
+    if (vendor === 'sanmar') {
+      await assertSanMarCasePriceInvariant(client, importId);
     }
 
     // Supersede the base import
