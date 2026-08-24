@@ -36,10 +36,14 @@ export default function AdminDashboard({
         <VendorCard vendor="sanmar" data={overview.vendors.sanmar} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <RecentJobs jobs={overview.recentJobs} />
+        <RecentJobs
+          jobs={overview.recentJobs}
+          available={overview.sectionAvailability.recentJobs}
+        />
         <RollbackSummary
           rollbacks={overview.rollbackSummary}
           vendors={overview.vendors}
+          available={overview.sectionAvailability.rollbackSummary}
         />
       </div>
       <OperationsPreview />
@@ -201,7 +205,13 @@ function VendorCard({
   );
 }
 
-function RecentJobs({ jobs }: { jobs: AdminCatalogRecentJob[] }) {
+function RecentJobs({
+  jobs,
+  available,
+}: {
+  jobs: AdminCatalogRecentJob[];
+  available: boolean;
+}) {
   return (
     <div className="rounded-lg border border-neutral-700/50 bg-neutral-800/50 p-5">
       <div className="flex items-center justify-between mb-4">
@@ -209,10 +219,12 @@ function RecentJobs({ jobs }: { jobs: AdminCatalogRecentJob[] }) {
           Recent Refreshes
         </h3>
         <span className="text-xs text-neutral-400">
-          {jobStatusSummary(jobs)}
+          {available ? jobStatusSummary(jobs) : "Unavailable"}
         </span>
       </div>
-      {jobs.length === 0 ? (
+      {!available ? (
+        <p className="text-sm text-amber-400">Refresh history unavailable.</p>
+      ) : jobs.length === 0 ? (
         <p className="text-sm text-neutral-400">No refresh history available.</p>
       ) : (
         <>
@@ -292,35 +304,41 @@ function JobStatusBadge({ status }: { status: string }) {
 function RollbackSummary({
   rollbacks,
   vendors,
+  available,
 }: {
   rollbacks: Record<AdminCatalogVendor, AdminCatalogRollbackSummary>;
   vendors: Record<AdminCatalogVendor, AdminCatalogVendorOverview>;
+  available: boolean;
 }) {
   return (
     <div className="rounded-lg border border-neutral-700/50 bg-neutral-800/50 p-5">
       <h3 className="text-sm font-semibold text-white font-display tracking-wide mb-4">
         Rollback History
       </h3>
-      <div className="space-y-3">
-        {(["ss", "sanmar"] as const).map((vendor) => (
-          <div
-            key={vendor}
-            className="flex items-center justify-between text-sm"
-          >
-            <span className="text-neutral-300">{vendors[vendor].label}</span>
-            <div className="text-right">
-              <span className="text-xs text-neutral-400">
-                {rollbackSummaryText(rollbacks[vendor])}
-              </span>
-              {rollbacks[vendor].latestAt && (
-                <span className="text-[11px] text-neutral-400 ml-2">
-                  latest {formatRelativeTime(rollbacks[vendor].latestAt)}
+      {!available ? (
+        <p className="text-sm text-amber-400">Rollback history unavailable.</p>
+      ) : (
+        <div className="space-y-3">
+          {(["ss", "sanmar"] as const).map((vendor) => (
+            <div
+              key={vendor}
+              className="flex items-center justify-between text-sm"
+            >
+              <span className="text-neutral-300">{vendors[vendor].label}</span>
+              <div className="text-right">
+                <span className="text-xs text-neutral-400">
+                  {rollbackSummaryText(rollbacks[vendor])}
                 </span>
-              )}
+                {rollbacks[vendor].latestAt && (
+                  <span className="text-[11px] text-neutral-400 ml-2">
+                    latest {formatRelativeTime(rollbacks[vendor].latestAt)}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

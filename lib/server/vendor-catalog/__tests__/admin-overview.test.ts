@@ -140,6 +140,52 @@ describe("admin catalog overview", () => {
     expect(overview.reason).toBeUndefined();
   });
 
+  it("keeps core catalog health available when optional operational queries fail", async () => {
+    const data = rows();
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: data[0] })
+      .mockRejectedValueOnce(new Error("jobs table unavailable"))
+      .mockRejectedValueOnce(new Error("rollback table unavailable"));
+
+    const overview = await queryAdminCatalogOverview({ query });
+
+    expect(overview.available).toBe(true);
+    expect(overview.vendors.ss.styleCount).toBe(2);
+    expect(overview.vendors.sanmar.variantCount).toBe(2);
+    expect(overview.recentJobs).toEqual([]);
+    expect(overview.rollbackSummary).toEqual({
+      ss: { totalCount: 0, latestAt: null },
+      sanmar: { totalCount: 0, latestAt: null },
+    });
+    expect(overview.sectionAvailability).toEqual({
+      recentJobs: false,
+      rollbackSummary: false,
+    });
+  });
+
+  it("fails core catalog errors promptly without waiting for optional queries", async () => {
+    const coreError = new Error("core catalog unavailable");
+    const never = new Promise<{ rows: Record<string, unknown>[] }>(() => {});
+    const query = vi
+      .fn()
+      .mockRejectedValueOnce(coreError)
+      .mockReturnValueOnce(never)
+      .mockReturnValueOnce(never);
+
+    const outcome = await Promise.race([
+      queryAdminCatalogOverview({ query }).then(
+        () => "resolved",
+        (error) => (error === coreError ? "core-rejected" : "other-error")
+      ),
+      new Promise<string>((resolve) =>
+        setTimeout(() => resolve("timed-out"), 50)
+      ),
+    ]);
+
+    expect(outcome).toBe("core-rejected");
+  });
+
   it("sanitizes phases in SQL, orders and bounds recent jobs, and exposes no forbidden fields", async () => {
     const database = fakeDatabase(rows());
 

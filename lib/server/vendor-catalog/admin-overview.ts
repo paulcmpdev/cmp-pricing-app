@@ -60,6 +60,10 @@ export interface AdminCatalogOverview {
   vendors: Record<AdminCatalogVendor, AdminCatalogVendorOverview>;
   recentJobs: AdminCatalogRecentJob[];
   rollbackSummary: Record<AdminCatalogVendor, AdminCatalogRollbackSummary>;
+  sectionAvailability: {
+    recentJobs: boolean;
+    rollbackSummary: boolean;
+  };
   totals: {
     styleCount: number;
     variantCount: number;
@@ -93,6 +97,10 @@ export function unavailableAdminCatalogOverview(
       ss: { totalCount: 0, latestAt: null },
       sanmar: { totalCount: 0, latestAt: null },
     },
+    sectionAvailability: {
+      recentJobs: false,
+      rollbackSummary: false,
+    },
     totals: { styleCount: 0, variantCount: 0, healthyVendorCount: 0 },
   };
 }
@@ -101,7 +109,7 @@ export async function queryAdminCatalogOverview(
   database: AdminOverviewQueryable,
   generatedAt: Date = new Date()
 ): Promise<AdminCatalogOverview> {
-  const [vendorResult, jobsResult, rollbackResult] = await Promise.all([
+  const [vendorPromise, jobsPromise, rollbackPromise] = [
     database.query(
       `WITH vendor_canaries(vendor, label, canary_style_code) AS (
          VALUES
@@ -197,11 +205,24 @@ export async function queryAdminCatalogOverview(
        GROUP BY v.vendor
        ORDER BY v.vendor`
     ),
+  ];
+
+  const optionalResultsPromise = Promise.allSettled([
+    jobsPromise,
+    rollbackPromise,
   ]);
+  const vendorResult = await vendorPromise;
+  const [jobsResult, rollbackResult] = await optionalResultsPromise;
 
   const vendors = mapVendorRows(vendorResult.rows);
-  const recentJobs = jobsResult.rows.map(mapRecentJob);
-  const rollbackSummary = mapRollbackRows(rollbackResult.rows);
+  const recentJobs =
+    jobsResult.status === "fulfilled"
+      ? jobsResult.value.rows.map(mapRecentJob)
+      : [];
+  const rollbackSummary =
+    rollbackResult.status === "fulfilled"
+      ? mapRollbackRows(rollbackResult.value.rows)
+      : emptyRollbackSummary();
   const healthyVendorCount = vendorList().filter(
     (vendor) => vendors[vendor].health === "healthy"
   ).length;
@@ -213,6 +234,10 @@ export async function queryAdminCatalogOverview(
     vendors,
     recentJobs,
     rollbackSummary,
+    sectionAvailability: {
+      recentJobs: jobsResult.status === "fulfilled",
+      rollbackSummary: rollbackResult.status === "fulfilled",
+    },
     totals: {
       styleCount: vendors.ss.styleCount + vendors.sanmar.styleCount,
       variantCount: vendors.ss.variantCount + vendors.sanmar.variantCount,
@@ -316,10 +341,7 @@ function mapRecentJob(row: Record<string, unknown>): AdminCatalogRecentJob {
 function mapRollbackRows(
   rows: Record<string, unknown>[]
 ): Record<AdminCatalogVendor, AdminCatalogRollbackSummary> {
-  const summary: Record<AdminCatalogVendor, AdminCatalogRollbackSummary> = {
-    ss: { totalCount: 0, latestAt: null },
-    sanmar: { totalCount: 0, latestAt: null },
-  };
+  const summary = emptyRollbackSummary();
 
   for (const row of rows) {
     const vendor = asVendor(row.vendor);
@@ -330,6 +352,16 @@ function mapRollbackRows(
   }
 
   return summary;
+}
+
+function emptyRollbackSummary(): Record<
+  AdminCatalogVendor,
+  AdminCatalogRollbackSummary
+> {
+  return {
+    ss: { totalCount: 0, latestAt: null },
+    sanmar: { totalCount: 0, latestAt: null },
+  };
 }
 
 function emptyVendor(vendor: AdminCatalogVendor): AdminCatalogVendorOverview {
