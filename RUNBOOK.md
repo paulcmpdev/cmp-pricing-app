@@ -21,12 +21,14 @@ run `npm rebuild` after switching Node versions).
 | `VENDOR_CATALOG_TEST_DATABASE_URL` | PostgreSQL URL for integration tests (optional, test-only) |
 | `CMP_SS_ACCOUNT_NUMBER` | S&S Basic auth account number (worker/CLI only, never in web runtime) |
 | `CMP_SS_API_KEY` | S&S Basic auth API key (worker/CLI only, never in web runtime) |
-| `CMP_SANMAR_SOURCE` | Required source selector: `soap` or `local` |
+| `CMP_SANMAR_SOURCE` | Required source selector: `soap`, `local`, or `sdln` |
 | `CMP_SANMAR_CUSTOMER_NUMBER` | SanMar web-service customer number (worker only) |
 | `CMP_SANMAR_USERNAME` | SanMar web-service username (worker only) |
 | `CMP_SANMAR_PASSWORD` | SanMar web-service password (worker only) |
 | `CMP_SANMAR_EPDD_PATH` | Path to local SanMar EPDD CSV file (worker/CLI only) |
 | `CMP_SANMAR_DIP_PATH` | Path to local SanMar DIP pipe-delimited file (worker/CLI only) |
+| `CMP_SANMAR_SDLN_PATH` | Path to local uncompressed `SanMar_SDL_N.csv` file (worker/CLI only) |
+| `CMP_SANMAR_EXPECTED_SOURCE_SHA256` | Required for `sdln`: expected SHA-256 of the uncompressed SDL_N CSV bytes |
 | `CMP_ALLOW_LOCAL_MANAGER_MODE` | Set to `true` in non-production to enable manager cost visibility via `x-cmp-role: manager` header |
 
 ## Pool Configuration
@@ -85,6 +87,17 @@ CMP_SANMAR_PASSWORD=yyy \
 CMP_SANMAR_SOURCE=local npm run catalog:sync -- --vendor sanmar \
   --sanmar-source local \
   --epdd-path data/epdd.csv --dip-path data/sanmar_dip.txt \
+  --target-url "$VENDOR_CATALOG_DATABASE_URL"
+
+# SanMar SDL_N no-inventory file (explicit source; no DIP required).
+# The expected hash is required and is for uncompressed SanMar_SDL_N.csv bytes.
+# Operators check any approved ZIP hash separately before extracting.
+export CMP_SANMAR_SDLN_PATH=data/SanMar_SDL_N.csv
+export CMP_SANMAR_EXPECTED_SOURCE_SHA256=<uncompressed-csv-sha256>
+CMP_SANMAR_SOURCE=sdln npm run catalog:sync -- --vendor sanmar \
+  --sanmar-source sdln \
+  --sdln-path "$CMP_SANMAR_SDLN_PATH" \
+  --expected-source-sha256 "$CMP_SANMAR_EXPECTED_SOURCE_SHA256" \
   --target-url "$VENDOR_CATALOG_DATABASE_URL"
 ```
 

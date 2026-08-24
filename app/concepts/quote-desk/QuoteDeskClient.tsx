@@ -344,9 +344,6 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
   const selectedVendorVariant = vendorVariants.find(
     (variant) => variant.id === selectedCatalogVariantId
   );
-  const selectedVendorAvailability = selectedVendorVariant
-    ? describeVariantAvailability(selectedVendorVariant)
-    : null;
 
   const changeRole = (nextRole: Role) => {
     itemAbort.current?.abort();
@@ -645,11 +642,18 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
                             disabled={!selectedVendorColor}
                           >
                             <option value="">Select size...</option>
-                            {vendorSizes.map((variant) => (
-                              <option key={variant.id} value={variant.id}>
-                                {describeVariantAvailability(variant).optionLabel}
-                              </option>
-                            ))}
+                            {vendorSizes.map((variant) => {
+                              const availability = describeVariantAvailability(variant);
+                              return (
+                                <option
+                                  key={variant.id}
+                                  value={variant.id}
+                                  disabled={availability.disabled}
+                                >
+                                  {availability.optionLabel}
+                                </option>
+                              );
+                            })}
                           </select>
                         </div>
                       </div>
@@ -666,11 +670,6 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
                         {isStaleVendorPricing(selectedVendorVariant.sourceSyncAt) && (
                           <p className="text-amber-700 font-medium" role="status">
                             Snapshot is stale. Verify vendor data before ordering.
-                          </p>
-                        )}
-                        {selectedVendorAvailability?.selectedWarning && (
-                          <p className="text-amber-700 font-medium" role="alert">
-                            {selectedVendorAvailability.selectedWarning}
                           </p>
                         )}
                       </div>

@@ -25,6 +25,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { parse as csvParse } from 'csv-parse';
 import { createInterface } from 'node:readline';
+import { Transform } from 'node:stream';
 import { ErrorCategory, createSourceError } from './contracts.mjs';
 
 const MAX_EPDD_UNIQUE_KEYS = 250_000;
@@ -38,6 +39,16 @@ const REQUIRED_EPDD_HEADERS = [
   'CATEGORY_NAME', 'COLOR_NAME', 'SIZE', 'PIECE_PRICE', 'CASE_PRICE',
   'INVENTORY_KEY', 'SIZE_INDEX', 'MILL', 'PRODUCT_STATUS', 'PRODUCT_IMAGE',
 ];
+
+const REQUIRED_SDLN_HEADERS = [
+  'UNIQUE_KEY', 'PRODUCT_TITLE', 'PRODUCT_DESCRIPTION', 'STYLE#',
+  'CATEGORY_NAME', 'COLOR_NAME', 'SIZE', 'PIECE_PRICE', 'DOZENS_PRICE',
+  'CASE_PRICE', 'INVENTORY_KEY', 'SIZE_INDEX', 'MILL', 'PRODUCT_STATUS',
+  'PRODUCT_IMAGE',
+];
+
+const SDLN_SELECTABLE_STATUSES = new Set(['REGULAR', 'ACTIVE', 'NEW']);
+const SDLN_UNAVAILABLE_STATUSES = new Set(['COMING SOON', 'DISCONTINUED', 'CLOSEOUT']);
 
 // Required DIP headers from the official Feb 2026 guide (case-insensitive match)
 const REQUIRED_DIP_HEADERS = [
@@ -58,6 +69,10 @@ const EPDD_HEADER_ALIASES = new Map([
   ['PRODUCT_IMAGE_FRONT', 'PRODUCT_IMAGE'],
   ['FRONT_MODEL', 'PRODUCT_IMAGE'],
   ['FRONT_MODEL_IMAGE', 'PRODUCT_IMAGE'],
+]);
+
+const SDLN_HEADER_ALIASES = new Map([
+  ['PRODUCT_IMAGE_URL', 'PRODUCT_IMAGE'],
 ]);
 
 const DIP_HEADER_ALIASES = new Map([
@@ -589,6 +604,177 @@ export async function ingestSanMar({
   };
 }
 
+/**
+ * Ingest SanMar SDL_N no-inventory CSV as a first-class normalized source.
+ *
+ * SDL_N has no inventory feed. Every source data row must emit exactly one
+ * variant with unknown inventory and case-price cost basis, or ingestion fails.
+ */
+export async function ingestSanMarSDLN({
+  source,
+  snapshotTime,
+  onStyle,
+  onVariant,
+  shouldContinue,
+  checkIntervalRows,
+  maxUniqueKeys = MAX_EPDD_UNIQUE_KEYS,
+  expectedSourceSha256,
+}) {
+  if (typeof source !== 'string' || source.trim() === '') {
+    throw createSourceError(ErrorCategory.SCHEMA, 'SanMar SDL_N source must be a nonempty file path string', { retryable: false });
+  }
+  const snapshot = snapshotTime ?? new Date();
+  if (!(snapshot instanceof Date) || Number.isNaN(snapshot.getTime())) {
+    throw createSourceError(ErrorCategory.VALIDATION, 'SanMar SDL_N snapshotTime must be a valid Date', { retryable: false });
+  }
+  if (!expectedSourceSha256) {
+    throw createSourceError(ErrorCategory.VALIDATION, 'SanMar SDL_N expectedSourceSha256 is required', { retryable: false });
+  }
+  validateSha256(expectedSourceSha256, 'expectedSourceSha256');
+  const normalizedExpectedSourceSha256 = expectedSourceSha256.toLowerCase();
+
+  if (shouldContinue && !(await shouldContinue())) {
+    throw createSourceError(ErrorCategory.CANCELED, 'SanMar SDL_N ingestion canceled before CSV parse');
+  }
+
+  const preflightSha256 = await computePathSha256(source);
+  if (preflightSha256 !== normalizedExpectedSourceSha256) {
+    throw createSourceError(
+      ErrorCategory.VALIDATION,
+      `SDL_N source SHA-256 mismatch: expected ${normalizedExpectedSourceSha256}, got ${preflightSha256}`,
+      { retryable: false }
+    );
+  }
+
+  const hash = createHash('sha256');
+  const input = createReadStream(source);
+  const hashingInput = input.pipe(new Transform({
+    transform(chunk, encoding, callback) {
+      hash.update(chunk, encoding);
+      callback(null, chunk);
+    },
+  }));
+  let headersValidated = false;
+
+  const parser = hashingInput.pipe(csvParse({
+    bom: true,
+    columns: (headers) => {
+      const canonicalHeaders = headers.map(canonicalizeSDLNHeader);
+      validateNoDuplicateHeaders(canonicalHeaders, 'SDL_N', 1);
+      validateHeaders(canonicalHeaders, REQUIRED_SDLN_HEADERS, 'SDL_N', 1);
+      headersValidated = true;
+      return canonicalHeaders;
+    },
+    skip_empty_lines: true,
+    relax_column_count_less: false,
+    relax_column_count_more: false,
+    relax_quotes: false,
+    trim: true,
+    cast: false,
+  }));
+
+  const emittedStyleIds = new Set();
+  const seenKeys = new Map();
+  let sourceRowCount = 0;
+  let variantCount = 0;
+  let lineNum = 1;
+  const contentHash = createHash('sha256');
+  const interval = normalizeCheckInterval(checkIntervalRows);
+
+  try {
+    for await (const record of parser) {
+      lineNum++;
+      sourceRowCount++;
+      if (shouldContinue && sourceRowCount % interval === 0 && !(await shouldContinue())) {
+        throw createSourceError(ErrorCategory.CANCELED, 'SanMar SDL_N ingestion canceled during CSV parse');
+      }
+      const normalized = normalizeSDLNRecord(record, lineNum);
+      const existing = seenKeys.get(normalized.variant.sourceVariantId);
+      if (existing) {
+        if (!sdlnRowsEquivalent(existing, normalized.record)) {
+          throw createSourceError(
+            ErrorCategory.VALIDATION,
+            `SDL_N duplicate UNIQUE_KEY "${normalized.variant.sourceVariantId}" with conflicting row at line ${lineNum}`,
+            { retryable: false }
+          );
+        }
+        throw createSourceError(
+          ErrorCategory.VALIDATION,
+          `SDL_N duplicate UNIQUE_KEY "${normalized.variant.sourceVariantId}" at line ${lineNum}; every source row must emit exactly one variant`,
+          { retryable: false }
+        );
+      }
+      if (seenKeys.size >= maxUniqueKeys) {
+        throw createSourceError(
+          ErrorCategory.VALIDATION,
+          `SDL_N unique key cap exceeded (${maxUniqueKeys})`,
+          { retryable: false }
+        );
+      }
+      seenKeys.set(normalized.variant.sourceVariantId, normalized.record);
+
+      if (!emittedStyleIds.has(normalized.style.sourceStyleId)) {
+        emittedStyleIds.add(normalized.style.sourceStyleId);
+        contentHash.update(JSON.stringify(normalized.style) + '\n');
+        await onStyle(normalized.style);
+      }
+      contentHash.update(JSON.stringify(normalized.variant) + '\n');
+      await onVariant(normalized.variant);
+      variantCount++;
+    }
+  } catch (error) {
+    if (error.category) throw error;
+    if (error.code?.startsWith?.('CSV_')) {
+      throw createSourceError(
+        ErrorCategory.PARSE,
+        `SDL_N CSV parse error at line ${lineNum}: ${error.message}`,
+        { retryable: false }
+      );
+    }
+    throw error;
+  }
+
+  if (!headersValidated) {
+    throw createSourceError(ErrorCategory.PARSE, 'SDL_N file is empty', { retryable: false });
+  }
+
+  const sourceSha256 = hash.digest('hex');
+  if (sourceSha256 !== normalizedExpectedSourceSha256) {
+    throw createSourceError(
+      ErrorCategory.VALIDATION,
+      `SDL_N source SHA-256 mismatch: expected ${normalizedExpectedSourceSha256}, got ${sourceSha256}`,
+      { retryable: false }
+    );
+  }
+
+  const reasons = [];
+  if (sourceRowCount === 0) {
+    reasons.push({ code: 'empty_source', count: 1 });
+  }
+  if (emittedStyleIds.size === 0) {
+    reasons.push({ code: 'no_styles', count: 1 });
+  }
+  if (variantCount !== sourceRowCount) {
+    reasons.push({ code: 'row_variant_count_mismatch', sourceRowCount, variantCount });
+  }
+  const sourceErrors = reasons.length;
+
+  return {
+    vendor: 'sanmar',
+    styleCount: emittedStyleIds.size,
+    variantCount,
+    skippedCount: 0,
+    sourceErrors,
+    complete: sourceErrors === 0,
+    contentHash: contentHash.digest('hex'),
+    sourceHash: sourceSha256,
+    sourceSha256,
+    source: 'sanmar-sdln',
+    snapshotTimestamp: snapshot.toISOString(),
+    reasons,
+  };
+}
+
 // --- Internal helpers ---
 
 function validateHeaders(actual, required, fileType, lineNum) {
@@ -604,9 +790,33 @@ function validateHeaders(actual, required, fileType, lineNum) {
   }
 }
 
+function validateNoDuplicateHeaders(actual, fileType, lineNum) {
+  const seen = new Set();
+  const duplicates = [];
+  for (const header of actual) {
+    const normalized = header.toUpperCase();
+    if (seen.has(normalized) && !duplicates.includes(normalized)) {
+      duplicates.push(normalized);
+    }
+    seen.add(normalized);
+  }
+  if (duplicates.length > 0) {
+    throw createSourceError(
+      ErrorCategory.SCHEMA,
+      `${fileType} duplicate headers: ${duplicates.join(', ')} (line ${lineNum})`,
+      { retryable: false }
+    );
+  }
+}
+
 function canonicalizeEPDDHeader(header) {
   const normalized = header.trim().toUpperCase();
   return EPDD_HEADER_ALIASES.get(normalized) ?? normalized;
+}
+
+function canonicalizeSDLNHeader(header) {
+  const normalized = header.trim().toUpperCase();
+  return SDLN_HEADER_ALIASES.get(normalized) ?? normalized;
 }
 
 function canonicalizeDIPHeader(header) {
@@ -658,6 +868,168 @@ function pricesEqual(left, right) {
 function normalizeCheckInterval(value) {
   const parsed = Number(value ?? DEFAULT_CHECK_INTERVAL_ROWS);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : DEFAULT_CHECK_INTERVAL_ROWS;
+}
+
+function normalizeSDLNRecord(record, lineNum) {
+  const uniqueKey = requireTrimmed(record.UNIQUE_KEY, 'UNIQUE_KEY', lineNum);
+  const styleCode = requireTrimmed(record['STYLE#'], 'STYLE#', lineNum);
+  const casePrice = parseRequiredStrictPositiveFloat(record.CASE_PRICE, 'CASE_PRICE', lineNum);
+  const piecePrice = parseSDLNOptionalPrice(record.PIECE_PRICE, 'PIECE_PRICE', lineNum);
+  const dozenPrice = parseSDLNOptionalPrice(record.DOZENS_PRICE, 'DOZENS_PRICE', lineNum);
+  const status = mapSDLNStatus(record.PRODUCT_STATUS, lineNum);
+  const sizeOrder = parseOptionalStrictNonnegativeInteger(record.SIZE_INDEX, 'SIZE_INDEX', lineNum);
+
+  const style = {
+    sourceStyleId: styleCode,
+    styleCode,
+    brand: blankToUndefined(record.MILL),
+    name: blankToUndefined(record.PRODUCT_TITLE),
+    category: blankToUndefined(record.CATEGORY_NAME),
+    description: blankToUndefined(record.PRODUCT_DESCRIPTION),
+    imageUrl: blankToUndefined(record.PRODUCT_IMAGE),
+  };
+
+  const variant = {
+    sourceVariantId: uniqueKey,
+    sourceStyleId: styleCode,
+    styleCode,
+    color: blankToUndefined(record.COLOR_NAME),
+    size: blankToUndefined(record.SIZE),
+    sizeOrder,
+    inventoryQty: undefined,
+    imageUrl: blankToUndefined(record.PRODUCT_IMAGE),
+    discontinued: status.discontinued,
+    piecePrice,
+    dozenPrice,
+    casePrice,
+    salePrice: undefined,
+    customerPrice: undefined,
+    resolvedCost: casePrice,
+    costBasis: 'casePrice',
+  };
+
+  return { style, variant, record: normalizedSDLNDedupeRecord(record) };
+}
+
+function requireTrimmed(value, field, lineNum) {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) {
+    throw createSourceError(
+      ErrorCategory.VALIDATION,
+      `SDL_N missing required ${field} at line ${lineNum}`,
+      { retryable: false }
+    );
+  }
+  return trimmed;
+}
+
+function parseRequiredStrictPositiveFloat(value, field, lineNum) {
+  const result = parseOptionalStrictNonnegativeFloat(value);
+  if (!result.valid || result.value == null || result.value <= 0) {
+    throw createSourceError(
+      ErrorCategory.VALIDATION,
+      `SDL_N ${field} must be a valid positive price at line ${lineNum}`,
+      { retryable: false }
+    );
+  }
+  return result.value;
+}
+
+function parseSDLNOptionalPrice(value, field, lineNum) {
+  const result = parseOptionalStrictNonnegativeFloat(value);
+  if (!result.valid) {
+    throw createSourceError(
+      ErrorCategory.VALIDATION,
+      `SDL_N ${field} is malformed at line ${lineNum}`,
+      { retryable: false }
+    );
+  }
+  return result.value;
+}
+
+function parseOptionalStrictNonnegativeInteger(value, field, lineNum) {
+  const normalized = String(value ?? '').trim();
+  if (normalized === '') return undefined;
+  if (!/^\d+$/.test(normalized)) {
+    throw createSourceError(
+      ErrorCategory.VALIDATION,
+      `SDL_N ${field} must be a nonnegative integer at line ${lineNum}`,
+      { retryable: false }
+    );
+  }
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed)) {
+    throw createSourceError(
+      ErrorCategory.VALIDATION,
+      `SDL_N ${field} is outside safe integer range at line ${lineNum}`,
+      { retryable: false }
+    );
+  }
+  return parsed;
+}
+
+function mapSDLNStatus(value, lineNum) {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    throw createSourceError(
+      ErrorCategory.VALIDATION,
+      `SDL_N PRODUCT_STATUS is required at line ${lineNum}`,
+      { retryable: false }
+    );
+  }
+  const normalized = raw.replace(/\s+/g, ' ').toUpperCase();
+  if (SDLN_SELECTABLE_STATUSES.has(normalized)) {
+    return { discontinued: false };
+  }
+  if (SDLN_UNAVAILABLE_STATUSES.has(normalized)) {
+    return { discontinued: true };
+  }
+  throw createSourceError(
+    ErrorCategory.VALIDATION,
+    `SDL_N PRODUCT_STATUS "${raw}" is not recognized at line ${lineNum}`,
+    { retryable: false }
+  );
+}
+
+function blankToUndefined(value) {
+  const trimmed = String(value ?? '').trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizedSDLNDedupeRecord(record) {
+  const normalized = {};
+  for (const key of REQUIRED_SDLN_HEADERS) {
+    normalized[key] = String(record[key] ?? '').trim();
+  }
+  return normalized;
+}
+
+function sdlnRowsEquivalent(left, right) {
+  for (const key of REQUIRED_SDLN_HEADERS) {
+    if (left[key] !== right[key]) return false;
+  }
+  return true;
+}
+
+function validateSha256(value, label) {
+  if (!/^[a-f0-9]{64}$/i.test(String(value))) {
+    throw createSourceError(
+      ErrorCategory.VALIDATION,
+      `${label} must be a 64-character SHA-256 hex digest`,
+      { retryable: false }
+    );
+  }
+}
+
+async function computePathSha256(path) {
+  const hash = createHash('sha256');
+  await new Promise((resolve, reject) => {
+    const stream = createReadStream(path);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('error', reject);
+    stream.on('end', resolve);
+  });
+  return hash.digest('hex');
 }
 
 function countKeysMissingFrom(leftMap, rightMap) {

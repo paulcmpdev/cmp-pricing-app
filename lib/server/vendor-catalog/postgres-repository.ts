@@ -68,7 +68,7 @@ export function createPostgresVendorCatalogRepository(database: PostgresQueryabl
       variantId: string
     ): Promise<CatalogVariantCostResolution | undefined> {
       const result = await database.query(
-        `SELECT id, style_id, vendor, style_code, color, size,
+        `SELECT id, style_id, vendor, style_code, color, size, discontinued,
                 resolved_cost, cost_basis, source_sync_at
          FROM active_catalog_variants
          WHERE id = $1
@@ -84,6 +84,7 @@ export function createPostgresVendorCatalogRepository(database: PostgresQueryabl
         styleCode: String(row.style_code),
         color: nullableString(row.color),
         size: nullableString(row.size),
+        discontinued: Boolean(row.discontinued),
         unitCost: Number(row.resolved_cost),
         costBasis: String(row.cost_basis),
         sourceSyncAt: timestamp(row.source_sync_at),

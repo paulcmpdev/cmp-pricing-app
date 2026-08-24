@@ -30,7 +30,8 @@ export function buildVendorCatalogTestDb(dbPath: string) {
       ('ss:3001C-BLU-S', 'ss:3001C', 'ss', '3001C-BLU-S', '3001C', 'Blue', 'S', 10, 10, NULL, 0, 4.10, NULL, NULL, NULL, 3.90, 4.10, 'piecePrice', '2025-09-09T00:00:00.000Z'),
       ('ss:B3001-GRY-M', 'ss:B3001', 'ss', 'B3001-GRY-M', 'B3001', 'Grey', 'M', 30, 8, NULL, 0, 6.10, NULL, NULL, NULL, 5.95, 6.10, 'piecePrice', '2025-09-09T00:00:00.000Z'),
       ('sanmar:K500-RED-M', 'sanmar:K500', 'sanmar', 'K500-RED-M', 'K500', 'Red', 'M', 20, NULL, 'https://example.test/k500-red.jpg', 0, 9.75, 9.50, 9.25, NULL, NULL, 9.25, 'casePrice', '2026-06-29T00:00:00.000Z'),
-      ('sanmar:K500-RED-L', 'sanmar:K500', 'sanmar', 'K500-RED-L', 'K500', 'Red', 'L', 30, NULL, 'https://example.test/k500-red.jpg', 0, 9.75, 9.50, 9.25, NULL, NULL, 9.25, 'casePrice', '2026-06-29T00:00:00.000Z');
+      ('sanmar:K500-RED-L', 'sanmar:K500', 'sanmar', 'K500-RED-L', 'K500', 'Red', 'L', 30, NULL, 'https://example.test/k500-red.jpg', 0, 9.75, 9.50, 9.25, NULL, NULL, 9.25, 'casePrice', '2026-06-29T00:00:00.000Z'),
+      ('sanmar:K500-RED-XL', 'sanmar:K500', 'sanmar', 'K500-RED-XL', 'K500', 'Red', 'XL', 40, NULL, 'https://example.test/k500-red.jpg', 1, 9.75, 9.50, 9.25, NULL, NULL, 9.25, 'casePrice', '2026-06-29T00:00:00.000Z');
   `);
   db.close();
 }

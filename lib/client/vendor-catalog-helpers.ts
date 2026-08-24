@@ -25,12 +25,10 @@ export function describeVariantAvailability({
 }: {
   size: string | null;
   discontinued: boolean;
-}): { optionLabel: string; selectedWarning: string | null } {
+}): { optionLabel: string; disabled: boolean } {
   const optionLabel = `${size ?? "Unknown"}${discontinued ? " - discontinued" : ""}`;
   return {
     optionLabel,
-    selectedWarning: discontinued
-      ? "Selected vendor variant is discontinued. Confirm availability before quoting."
-      : null,
+    disabled: discontinued,
   };
 }

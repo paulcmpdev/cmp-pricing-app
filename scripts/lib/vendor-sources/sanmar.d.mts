@@ -62,6 +62,8 @@ export interface CompletenessManifest {
   sourceErrors?: number;
   complete?: boolean;
   contentHash: string;
+  sourceHash?: string;
+  sourceSha256?: string;
   source: string;
   snapshotTimestamp?: string;
   reasons?: Array<Record<string, unknown>>;
@@ -102,4 +104,15 @@ export function ingestSanMar(options: {
   shouldContinue?: () => boolean | Promise<boolean>;
   checkIntervalRows?: number;
   allowEpddPriceFallbackMissingDip?: boolean;
+}): Promise<CompletenessManifest>;
+
+export function ingestSanMarSDLN(options: {
+  source: string;
+  snapshotTime?: Date;
+  onStyle: (style: any) => void | Promise<void>;
+  onVariant: (variant: any) => void | Promise<void>;
+  shouldContinue?: () => boolean | Promise<boolean>;
+  checkIntervalRows?: number;
+  maxUniqueKeys?: number;
+  expectedSourceSha256: string;
 }): Promise<CompletenessManifest>;

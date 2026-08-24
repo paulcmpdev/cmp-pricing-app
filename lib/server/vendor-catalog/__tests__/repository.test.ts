@@ -133,7 +133,15 @@ describe("vendor catalog repository", () => {
       brand: "Port Authority",
     });
     expect(Object.keys(style).join(" ")).not.toMatch(/cost|price|cogs/i);
-    expect(variants).toHaveLength(2);
+    expect(variants).toHaveLength(3);
+    expect(variants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "sanmar:K500-RED-XL",
+          discontinued: true,
+        }),
+      ])
+    );
     for (const variant of variants) {
       expect(Object.keys(variant).join(" ")).not.toMatch(/cost|price|cogs/i);
     }
@@ -161,6 +169,14 @@ describe("vendor catalog repository", () => {
       costBasis: "casePrice",
       vendor: "sanmar",
       variantId: "sanmar:K500-RED-L",
+      discontinued: false,
+    });
+    await expect(resolveCatalogVariantCost("sanmar:K500-RED-XL")).resolves.toMatchObject({
+      unitCost: 9.25,
+      costBasis: "casePrice",
+      vendor: "sanmar",
+      variantId: "sanmar:K500-RED-XL",
+      discontinued: true,
     });
   });
 });

@@ -89,6 +89,22 @@ describe("vendor catalog API", () => {
     const variantJson = await variantResponse.json();
     expect(variantJson.variants).toHaveLength(2);
     expect(JSON.stringify(variantJson)).not.toMatch(/cost|price|cogs/i);
+
+    const sanmarVariantResponse = await variantsGET(
+      request("http://localhost/api/vendor-catalog/styles/sanmar%3AK500/variants"),
+      { params: { styleId: "sanmar%3AK500" } }
+    );
+    expect(sanmarVariantResponse.status).toBe(200);
+    const sanmarVariantJson = await sanmarVariantResponse.json();
+    expect(sanmarVariantJson.variants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "sanmar:K500-RED-XL",
+          discontinued: true,
+        }),
+      ])
+    );
+    expect(JSON.stringify(sanmarVariantJson)).not.toMatch(/cost|price|cogs/i);
   });
 });
 
@@ -152,6 +168,30 @@ describe("vendor catalog quote API path", () => {
     const json = await response.json();
     expect(json.salesPrice).toBeGreaterThan(0);
     expect(JSON.stringify(json)).not.toMatch(/cost|basis|vendor|variant/i);
+  });
+
+  it("rejects direct quote requests for discontinued catalog variants", async () => {
+    useFixtureDb();
+
+    const response = await quoteItemPOST(
+      request("http://localhost/api/quote/item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cmp-role": "staff" },
+        body: JSON.stringify({
+          catalogVariantId: "sanmar:K500-RED-XL",
+          quantity: 12,
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        catalogVariantId: [
+          "Catalog variant is discontinued and cannot be quoted.",
+        ],
+      },
+    });
   });
 
   it("returns a graceful unavailable response for catalogVariantId without a database", async () => {
