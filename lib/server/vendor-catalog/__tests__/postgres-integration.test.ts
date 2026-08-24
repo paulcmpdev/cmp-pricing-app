@@ -62,9 +62,9 @@ describe.skipIf(!runIntegration)(
       );
       await pool.query(
         `INSERT INTO catalog_variants (import_id, id, style_id, vendor, source_variant_id, style_code, color, size, size_order, inventory_qty, image_url, discontinued, resolved_cost, cost_basis)
-         VALUES ($1, 'ss:3001-BLK-M', 'ss:3001', 'ss', '3001-BLK-M', '3001', 'Black', 'M', 30, 42, NULL, false, 4.25, 'customerPrice'),
+         VALUES ($1, 'ss:3001-BLK-M', 'ss:3001', 'ss', '3001-BLK-M', '3001', 'Black', 'M', 30, 42, NULL, false, 5.00, 'piecePrice'),
                 ($1, 'ss:3001-BLK-L', 'ss:3001', 'ss', '3001-BLK-L', '3001', 'Black', 'L', 40, 0, NULL, false, 5.20, 'piecePrice'),
-                ($1, 'ss:3001C-BLU-S', 'ss:3001C', 'ss', '3001C-BLU-S', '3001C', 'Blue', 'S', 10, 10, NULL, false, 3.90, 'customerPrice')`,
+                ($1, 'ss:3001C-BLU-S', 'ss:3001C', 'ss', '3001C-BLU-S', '3001C', 'Blue', 'S', 10, 10, NULL, false, 4.10, 'piecePrice')`,
         [ssImportId]
       );
 
@@ -477,8 +477,8 @@ describe.skipIf(!runIntegration)(
       expect(cost).toMatchObject({
         variantId: "ss:3001-BLK-M",
         vendor: "ss",
-        unitCost: 4.25,
-        costBasis: "customerPrice",
+        unitCost: 5.00,
+        costBasis: "piecePrice",
       });
     });
 
@@ -620,8 +620,8 @@ describe.skipIf(!runIntegration)(
     it("cost resolution returns full cost data for server-side use", async () => {
       const cost = await repo().resolveVariantCost("ss:3001-BLK-M");
       expect(cost).toBeDefined();
-      expect(cost!.unitCost).toBe(4.25);
-      expect(cost!.costBasis).toBe("customerPrice");
+      expect(cost!.unitCost).toBe(5.00);
+      expect(cost!.costBasis).toBe("piecePrice");
       expect(cost!.vendor).toBe("ss");
       expect(cost!.styleCode).toBe("3001");
     });

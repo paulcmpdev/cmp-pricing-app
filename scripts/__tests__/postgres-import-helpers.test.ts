@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  assertSSPiecePriceInvariant,
   assertSafeCatalogCounts,
   buildParameterizedInsert,
   normalizeDatabaseUrlForComparison,
@@ -12,6 +13,7 @@ import {
   SS_VARIANTS_QUERY,
   SANMAR_STYLES_QUERY,
   SANMAR_VARIANTS_QUERY,
+  INVALID_PRICE_QUERIES,
 } from "../lib/vendor-catalog-source-queries.mjs";
 
 describe("PostgreSQL catalog import safety", () => {
@@ -145,6 +147,32 @@ describe("PostgreSQL catalog import safety", () => {
     expect(PG_MAX_PARAMETERS).toBe(65_535);
   });
 
+  it("assertSSPiecePriceInvariant accepts clean S&S staged rows", async () => {
+    const target = {
+      query: async (sql: string, params: unknown[]) => {
+        expect(sql).toContain("vendor = 'ss'");
+        expect(sql).toContain("piece_price IS NULL");
+        expect(sql).toContain("piece_price <= 0");
+        expect(sql).toContain("resolved_cost IS DISTINCT FROM piece_price");
+        expect(sql).toContain("cost_basis IS DISTINCT FROM 'piecePrice'");
+        expect(params).toEqual(["import-1"]);
+        return { rows: [{ violations: 0 }] };
+      },
+    };
+
+    await expect(assertSSPiecePriceInvariant(target, "import-1")).resolves.toBeUndefined();
+  });
+
+  it("assertSSPiecePriceInvariant rejects S&S staged rows that do not resolve to piecePrice", async () => {
+    const target = {
+      query: async () => ({ rows: [{ violations: 3 }] }),
+    };
+
+    await expect(assertSSPiecePriceInvariant(target, "import-2")).rejects.toThrow(
+      /S&S import import-2 violates piece price activation invariant/i
+    );
+  });
+
   it("rejects variants fewer than styles", () => {
     expect(() =>
       assertSafeCatalogCounts({
@@ -210,6 +238,33 @@ describe("PostgreSQL catalog import safety", () => {
     expect(source).toContain("DELETE FROM catalog_variants WHERE import_id");
   });
 
+  it("Vendo PG importer stream filter rejects zero resolved_cost", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/import-vendo-catalog-postgres.mjs"),
+      "utf8"
+    );
+    expect(source).toContain("cost <= 0");
+  });
+
+  it("Vendo PG importer validation checks zero-cost variants", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/import-vendo-catalog-postgres.mjs"),
+      "utf8"
+    );
+    expect(source).toContain("resolved_cost <= 0");
+  });
+
+  it("Vendo PG importer asserts S&S piece-price invariant immediately before activation", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "scripts/import-vendo-catalog-postgres.mjs"),
+      "utf8"
+    );
+    expect(source).toContain("assertSSPiecePriceInvariant");
+    expect(source).toMatch(
+      /await validateImport\(importId, vendor, styleCount, variantCount\);\s*await assertSSPiecePriceInvariant\(target, importId\);\s*await activateImport\(importId, vendor\);/
+    );
+  });
+
   it("seed script allows approved recovery snapshot with source_status != completed", () => {
     const source = readFileSync(
       resolve(process.cwd(), "scripts/seed-catalog-from-sqlite.mjs"),
@@ -246,23 +301,91 @@ describe("PostgreSQL catalog import safety", () => {
   });
 });
 
-describe("S&S source query price-filter contract", () => {
-  const SS_PRICE_FILTER =
-    'COALESCE(NULLIF(p."customerPrice", 0), NULLIF(p."salePrice", 0), NULLIF(p."piecePrice", 0))';
+describe("Seed script S&S invariant enforcement", () => {
+  const seedSource = readFileSync(
+    resolve(process.cwd(), "scripts/seed-catalog-from-sqlite.mjs"),
+    "utf8"
+  );
 
-  it("SS_STYLES_QUERY active_variant_count uses the same price filter as SS_VARIANTS_QUERY WHERE", () => {
-    // The styles query must count only priced-eligible rows, matching the
-    // variants query's WHERE clause, so active_variant_count equals actual
-    // imported variant count per style.
-    expect(SS_STYLES_QUERY).toContain(
-      `COUNT(CASE WHEN ${SS_PRICE_FILTER} IS NOT NULL THEN 1 END)::int AS active_variant_count`
+  it("source pre-validation counts and rejects S&S invariant failures before streaming", () => {
+    expect(seedSource).toContain("bad_piece_price");
+    expect(seedSource).toContain("wrong_basis");
+    expect(seedSource).toContain("mismatched_cost");
+    expect(seedSource).toContain("before streaming");
+  });
+
+  it("source pre-validation enforces S&S piece_price > 0 and cost_basis = piecePrice", () => {
+    expect(seedSource).toContain("piece_price");
+    expect(seedSource).toContain("cost_basis");
+    expect(seedSource).toContain("piecePrice");
+  });
+
+  it("seed stream does not skip invalid S&S rows into a partial snapshot", () => {
+    const streamBody = seedSource.slice(
+      seedSource.indexOf("async function streamSqliteToTarget"),
+      seedSource.indexOf("async function insertBatch")
     );
-    expect(SS_VARIANTS_QUERY).toContain(
-      `WHERE ${SS_PRICE_FILTER} IS NOT NULL`
+    expect(streamBody).not.toContain("continue;");
+    expect(streamBody).not.toContain("Skipped ${skippedInvalid}");
+  });
+
+  it("PG validation query checks for zero-cost variants (not just negative)", () => {
+    // validateImport must detect resolved_cost = 0 as invalid
+    expect(seedSource).toContain("resolved_cost <= 0");
+  });
+
+  it("seed activation asserts S&S invariant in the activation transaction before pointer changes", () => {
+    expect(seedSource).toMatch(
+      /for \(const \{ importId, vendor \} of prepared\) \{\s*await assertSSPiecePriceInvariant\(client, importId\);\s*const current = await client.query/
+    );
+  });
+});
+
+describe("Legacy import (import-vendo-catalog.mjs) S&S price contract", () => {
+  const legacySource = readFileSync(
+    resolve(process.cwd(), "scripts/import-vendo-catalog.mjs"),
+    "utf8"
+  );
+
+  it("SS variant WHERE requires piecePrice > 0 (not NULLIF)", () => {
+    // The legacy import must use the same strictly-positive predicate
+    expect(legacySource).toContain('WHERE p."piecePrice" > 0');
+    expect(legacySource).not.toMatch(/WHERE\s+NULLIF\(p\."piecePrice"/);
+  });
+
+  it("SS invalid price count includes NULL, zero, and negative", () => {
+    expect(legacySource).toContain('"piecePrice" IS NULL');
+    expect(legacySource).toContain('"piecePrice" <= 0');
+  });
+});
+
+describe("S&S source query price-filter contract", () => {
+  it("SS_STYLES_QUERY active_variant_count requires piecePrice > 0", () => {
+    expect(SS_STYLES_QUERY).toContain(
+      `COUNT(CASE WHEN p."piecePrice" > 0 THEN 1 END)::int AS active_variant_count`
     );
   });
 
-  it("SanMar styles and variants queries use the same price filter", () => {
+  it("SS_STYLES_QUERY excludes styles with zero piecePrice > 0 variants via HAVING", () => {
+    expect(SS_STYLES_QUERY).toMatch(/HAVING\s+COUNT\s*\(\s*CASE\s+WHEN\s+p\."piecePrice"\s*>\s*0/i);
+  });
+
+  it("SS_VARIANTS_QUERY WHERE requires piecePrice > 0", () => {
+    expect(SS_VARIANTS_QUERY).toContain(
+      `WHERE p."piecePrice" > 0`
+    );
+  });
+
+  it("SS_VARIANTS_QUERY does not use NULLIF for price filtering", () => {
+    expect(SS_VARIANTS_QUERY).not.toContain('NULLIF(p."piecePrice"');
+  });
+
+  it("INVALID_PRICE_QUERIES.ss counts NULL, zero, and negative piecePrice", () => {
+    expect(INVALID_PRICE_QUERIES.ss).toContain('"piecePrice" IS NULL');
+    expect(INVALID_PRICE_QUERIES.ss).toContain('"piecePrice" <= 0');
+  });
+
+  it("SanMar styles and variants queries use the same price filter (unchanged)", () => {
     const SANMAR_PRICE_FILTER = 'NULLIF(s."piecePrice", 0)';
     expect(SANMAR_STYLES_QUERY).toContain(
       `WHERE ${SANMAR_PRICE_FILTER} IS NOT NULL`

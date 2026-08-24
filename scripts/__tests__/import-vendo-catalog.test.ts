@@ -36,6 +36,17 @@ describe("Vendo catalog importer contract", () => {
     }
   });
 
+  it("SS styles active_variant_count counts only piecePrice > 0 products", () => {
+    const sql = sqlBlock("ssStyles");
+    expect(sql).toContain('CASE WHEN p."piecePrice" > 0 THEN 1 END');
+    expect(sql).not.toContain('COUNT(p."sku")');
+  });
+
+  it("SS styles excludes styles with zero piecePrice > 0 variants", () => {
+    const sql = sqlBlock("ssStyles");
+    expect(sql).toMatch(/HAVING\s+COUNT\s*\(\s*CASE\s+WHEN\s+p\."piecePrice"\s*>\s*0/i);
+  });
+
   it("uses the customer-facing S&S styleName as style_code", () => {
     for (const name of ["ssStyles", "ssVariants"]) {
       const sql = sqlBlock(name);
