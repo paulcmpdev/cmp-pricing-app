@@ -64,6 +64,7 @@ const LEASE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 const HEARTBEAT_INTERVAL_MS = 60 * 1000;  // 1 minute
 const DEFAULT_BATCH_SIZE = 500;
 const DEFAULT_CHECK_INTERVAL_ROWS = 1000;
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/i;
 
 // Non-terminal statuses for job lifecycle
 const NON_TERMINAL_STATUSES = ['queued', 'running', 'validating'];
@@ -114,7 +115,22 @@ if (isDirectExecution) {
       if (!accountNumber || !apiKey) {
         fail('CMP_SS_ACCOUNT_NUMBER and CMP_SS_API_KEY are required for S&S.');
       }
-      sourceConfig = { type: 'ss-api', accountNumber, apiKey };
+      let expectedEmptyStylePins;
+      try {
+        expectedEmptyStylePins = parseSSEmptyStylePins({
+          expectedStyleCount: args['expected-style-count'] ?? process.env.CMP_SS_EXPECTED_STYLE_COUNT,
+          expectedVariantCount: args['expected-variant-count'] ?? process.env.CMP_SS_EXPECTED_VARIANT_COUNT,
+          expectedEmptyStyleSha256: args['expected-empty-style-sha256'] ?? process.env.CMP_SS_EXPECTED_EMPTY_STYLE_SHA256,
+        });
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error));
+      }
+      sourceConfig = {
+        type: 'ss-api',
+        accountNumber,
+        apiKey,
+        ...(expectedEmptyStylePins ? { expectedEmptyStylePins } : {}),
+      };
     } else {
       const epddPath = args['epdd-path'] ?? process.env.CMP_SANMAR_EPDD_PATH;
       const dipPath = args['dip-path'] ?? process.env.CMP_SANMAR_DIP_PATH;
@@ -305,7 +321,7 @@ export async function runIngestion({
     };
 
     // Run vendor-specific ingestion
-    const manifest = await ingestVendor({
+    const rawManifest = await ingestVendor({
       vendor,
       sourceConfig,
       importId,
@@ -319,6 +335,11 @@ export async function runIngestion({
       shouldContinue,
       checkIntervalRows,
       testHooks,
+    });
+    const manifest = applySSEmptyStyleActivationException({
+      vendor,
+      manifest: rawManifest,
+      sourceConfig,
     });
     assertManifestCompleteForActivation(manifest);
 
@@ -617,6 +638,127 @@ export function assertManifestCompleteForActivation(manifest) {
       `${manifest.vendor} manifest incomplete: ${Number(manifest.sourceErrors ?? 0)} source error(s); refusing activation.${reasons}`
     );
   }
+}
+
+export function parseSSEmptyStylePins({
+  expectedStyleCount,
+  expectedVariantCount,
+  expectedEmptyStyleSha256,
+} = {}) {
+  const values = [expectedStyleCount, expectedVariantCount, expectedEmptyStyleSha256];
+  const present = values.map((value) => value != null && String(value).trim() !== '');
+  const presentCount = present.filter(Boolean).length;
+  if (presentCount === 0) return undefined;
+  if (presentCount !== 3) {
+    throw new Error(
+      'S&S empty-style activation pins must be provided as an all-or-none set: ' +
+      '--expected-style-count, --expected-variant-count, and --expected-empty-style-sha256.'
+    );
+  }
+
+  const styleCount = parsePositiveSafeInteger(expectedStyleCount, 'expected style count');
+  const variantCount = parsePositiveSafeInteger(expectedVariantCount, 'expected variant count');
+  const emptyStyleSha256 = String(expectedEmptyStyleSha256).trim().toLowerCase();
+  if (!SHA256_HEX_PATTERN.test(emptyStyleSha256)) {
+    throw new Error('S&S expected empty-style SHA-256 must be a 64-character hex digest.');
+  }
+
+  return { styleCount, variantCount, emptyStyleSha256 };
+}
+
+function parsePositiveSafeInteger(value, label) {
+  const text = String(value).trim();
+  if (!/^[0-9]+$/.test(text)) {
+    throw new Error(`S&S ${label} must be a positive safe integer.`);
+  }
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`S&S ${label} must be a positive safe integer.`);
+  }
+  return parsed;
+}
+
+export function applySSEmptyStyleActivationException({ vendor, manifest, sourceConfig }) {
+  const pins = sourceConfig?.expectedEmptyStylePins;
+  if (!pins) return manifest;
+
+  const accepted = validateSSEmptyStyleActivationException({ vendor, manifest, pins });
+  return {
+    ...manifest,
+    complete: true,
+    sourceErrors: 0,
+    ssEmptyStyleActivationException: accepted,
+  };
+}
+
+export function validateSSEmptyStyleActivationException({ vendor, manifest, pins }) {
+  if (vendor !== 'ss' || manifest?.vendor !== 'ss' || sourceConfigType(manifest) !== 'ss-api') {
+    throw new Error('S&S empty-style activation exception is only valid for vendor ss and source ss-api.');
+  }
+  if (manifest.styleCount !== pins.styleCount || manifest.variantCount !== pins.variantCount) {
+    throw new Error(
+      `S&S empty-style activation exception count mismatch: ` +
+      `manifest styles/variants ${manifest.styleCount}/${manifest.variantCount}, ` +
+      `expected ${pins.styleCount}/${pins.variantCount}.`
+    );
+  }
+  if (manifest.skippedCount !== 0) {
+    throw new Error('S&S empty-style activation exception requires skippedCount=0.');
+  }
+
+  const reasons = Array.isArray(manifest.reasons) ? manifest.reasons : [];
+  if (reasons.length === 0) {
+    throw new Error('S&S empty-style activation exception requires at least one incomplete-style reason.');
+  }
+  if (Number(manifest.sourceErrors) !== reasons.length) {
+    throw new Error(
+      'S&S empty-style activation exception requires sourceErrors to equal the represented reason count.'
+    );
+  }
+
+  const styleIds = [];
+  for (const reason of reasons) {
+    if (
+      reason?.code !== 'ss_style_incomplete' ||
+      reason.rawProductCount !== 0 ||
+      reason.usableVariantCount !== 0 ||
+      typeof reason.styleId !== 'string' ||
+      reason.styleId.length === 0
+    ) {
+      throw new Error(
+        'S&S empty-style activation exception only accepts ss_style_incomplete reasons ' +
+        'with rawProductCount=0 and usableVariantCount=0.'
+      );
+    }
+    styleIds.push(reason.styleId);
+  }
+
+  const sortedUniqueStyleIds = [...new Set(styleIds)].sort();
+  if (sortedUniqueStyleIds.length !== reasons.length) {
+    throw new Error('S&S empty-style activation exception requires unique incomplete style IDs.');
+  }
+
+  const actualSha256 = createHash('sha256')
+    .update(`${sortedUniqueStyleIds.join('\n')}\n`)
+    .digest('hex');
+  if (actualSha256 !== pins.emptyStyleSha256) {
+    throw new Error(
+      `S&S empty-style activation exception digest mismatch: expected ${pins.emptyStyleSha256}, got ${actualSha256}.`
+    );
+  }
+
+  return {
+    accepted: true,
+    expectedStyleCount: pins.styleCount,
+    expectedVariantCount: pins.variantCount,
+    emptyStyleCount: sortedUniqueStyleIds.length,
+    emptyStyleSha256: actualSha256,
+    emptyStyleIds: sortedUniqueStyleIds,
+  };
+}
+
+function sourceConfigType(manifest) {
+  return manifest?.source;
 }
 
 // --- Delta ingestion orchestration ---
@@ -1338,6 +1480,9 @@ function buildManifestSourceMetadata(manifest) {
   };
   if (manifest.sourceHash) metadata.sourceHash = manifest.sourceHash;
   if (manifest.sourceSha256) metadata.sourceSha256 = manifest.sourceSha256;
+  if (manifest.ssEmptyStyleActivationException) {
+    metadata.ssEmptyStyleActivationException = manifest.ssEmptyStyleActivationException;
+  }
   return metadata;
 }
 

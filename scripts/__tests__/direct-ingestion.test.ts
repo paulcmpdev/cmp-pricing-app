@@ -17,7 +17,11 @@ import {
   ingestSanMar,
   ingestSanMarSDLN,
 } from '../lib/vendor-sources/sanmar.mjs';
-import { assertManifestCompleteForActivation } from '../sync-vendor-catalog.mjs';
+import {
+  applySSEmptyStyleActivationException,
+  assertManifestCompleteForActivation,
+  parseSSEmptyStylePins,
+} from '../sync-vendor-catalog.mjs';
 import {
   SS_STYLES_RESPONSE,
   SS_PRODUCTS_BATCH_1,
@@ -73,6 +77,10 @@ function streamFromExact(content: string) {
 
 function sha256(content: string) {
   return createHash('sha256').update(content).digest('hex');
+}
+
+function ssEmptyStyleDigest(styleIds: string[]) {
+  return sha256(`${[...styleIds].sort().join('\n')}\n`);
 }
 
 function writeTempSDLN(content: string) {
@@ -972,6 +980,180 @@ describe('S&S adapter', () => {
       rawProductCount: 0,
       usableVariantCount: 0,
     });
+  });
+
+  it('accepts an operator-pinned S&S confirmed-empty-style activation exception exactly', () => {
+    const manifest = {
+      vendor: 'ss',
+      styleCount: 3,
+      variantCount: 5,
+      skippedCount: 0,
+      contentHash: 'content',
+      source: 'ss-api',
+      complete: false,
+      sourceErrors: 2,
+      reasons: [
+        { code: 'ss_style_incomplete', styleId: '102', rawProductCount: 0, usableVariantCount: 0 },
+        { code: 'ss_style_incomplete', styleId: '101', rawProductCount: 0, usableVariantCount: 0 },
+      ],
+    };
+    const sourceConfig = {
+      type: 'ss-api',
+      expectedEmptyStylePins: {
+        styleCount: 3,
+        variantCount: 5,
+        emptyStyleSha256: ssEmptyStyleDigest(['101', '102']),
+      },
+    };
+
+    const accepted = applySSEmptyStyleActivationException({ vendor: 'ss', manifest, sourceConfig });
+
+    expect(accepted.complete).toBe(true);
+    expect(accepted.sourceErrors).toBe(0);
+    expect(accepted.ssEmptyStyleActivationException).toEqual({
+      accepted: true,
+      expectedStyleCount: 3,
+      expectedVariantCount: 5,
+      emptyStyleCount: 2,
+      emptyStyleSha256: ssEmptyStyleDigest(['101', '102']),
+      emptyStyleIds: ['101', '102'],
+    });
+    expect(() => assertManifestCompleteForActivation(accepted)).not.toThrow();
+  });
+
+  it('keeps default no-pin S&S incomplete manifests fail-closed', () => {
+    const manifest = {
+      vendor: 'ss',
+      styleCount: 1,
+      variantCount: 1,
+      skippedCount: 0,
+      source: 'ss-api',
+      complete: false,
+      sourceErrors: 1,
+      reasons: [
+        { code: 'ss_style_incomplete', styleId: '101', rawProductCount: 0, usableVariantCount: 0 },
+      ],
+    };
+
+    const unchanged = applySSEmptyStyleActivationException({
+      vendor: 'ss',
+      manifest,
+      sourceConfig: { type: 'ss-api' },
+    });
+
+    expect(unchanged).toBe(manifest);
+    expect(() => assertManifestCompleteForActivation(unchanged)).toThrow(/refusing activation/i);
+  });
+
+  it('requires S&S empty-style pins as an all-or-none set and validates count/digest shape', () => {
+    expect(parseSSEmptyStylePins({})).toBeUndefined();
+    expect(() => parseSSEmptyStylePins({
+      expectedStyleCount: '3',
+      expectedVariantCount: '5',
+    })).toThrow(/all-or-none/i);
+    expect(() => parseSSEmptyStylePins({
+      expectedStyleCount: '0',
+      expectedVariantCount: '5',
+      expectedEmptyStyleSha256: 'a'.repeat(64),
+    })).toThrow(/positive safe integer/i);
+    expect(() => parseSSEmptyStylePins({
+      expectedStyleCount: '3',
+      expectedVariantCount: '5.5',
+      expectedEmptyStyleSha256: 'a'.repeat(64),
+    })).toThrow(/positive safe integer/i);
+    expect(() => parseSSEmptyStylePins({
+      expectedStyleCount: '3',
+      expectedVariantCount: '5',
+      expectedEmptyStyleSha256: 'not-a-digest',
+    })).toThrow(/64-character hex digest/i);
+    expect(parseSSEmptyStylePins({
+      expectedStyleCount: '3',
+      expectedVariantCount: '5',
+      expectedEmptyStyleSha256: 'A'.repeat(64),
+    })).toEqual({
+      styleCount: 3,
+      variantCount: 5,
+      emptyStyleSha256: 'a'.repeat(64),
+    });
+  });
+
+  it.each([
+    {
+      name: 'count drift',
+      manifestPatch: { variantCount: 4 },
+      error: /count mismatch/i,
+    },
+    {
+      name: 'digest drift',
+      pinsPatch: { emptyStyleSha256: ssEmptyStyleDigest(['999']) },
+      error: /digest mismatch/i,
+    },
+    {
+      name: 'partial style',
+      reasons: [
+        { code: 'ss_style_incomplete', styleId: '101', rawProductCount: 2, usableVariantCount: 1 },
+      ],
+      error: /rawProductCount=0/i,
+    },
+    {
+      name: 'skipped price',
+      manifestPatch: { skippedCount: 1 },
+      error: /skippedCount=0/i,
+    },
+    {
+      name: 'unrepresented source error',
+      manifestPatch: { sourceErrors: 2 },
+      error: /sourceErrors to equal the represented reason count/i,
+    },
+    {
+      name: 'duplicate reason ID',
+      reasons: [
+        { code: 'ss_style_incomplete', styleId: '101', rawProductCount: 0, usableVariantCount: 0 },
+        { code: 'ss_style_incomplete', styleId: '101', rawProductCount: 0, usableVariantCount: 0 },
+      ],
+      error: /unique incomplete style IDs/i,
+    },
+    {
+      name: 'unrelated vendor',
+      vendor: 'sanmar',
+      manifestPatch: { vendor: 'sanmar', source: 'sanmar-local' },
+      error: /only valid for vendor ss/i,
+    },
+    {
+      name: 'unrelated reason code',
+      reasons: [
+        { code: 'ss_price_incomplete', styleId: '101', rawProductCount: 0, usableVariantCount: 0 },
+      ],
+      error: /only accepts ss_style_incomplete/i,
+    },
+  ])('rejects S&S empty-style activation exception mismatch: $name', ({ vendor = 'ss', manifestPatch, pinsPatch, reasons, error }) => {
+    const baseReasons = reasons ?? [
+      { code: 'ss_style_incomplete', styleId: '101', rawProductCount: 0, usableVariantCount: 0 },
+    ];
+    const manifest = {
+      vendor: 'ss',
+      styleCount: 3,
+      variantCount: 5,
+      skippedCount: 0,
+      source: 'ss-api',
+      complete: false,
+      sourceErrors: baseReasons.length,
+      reasons: baseReasons,
+      ...manifestPatch,
+    };
+    const sourceConfig = {
+      type: 'ss-api',
+      expectedEmptyStylePins: {
+        styleCount: 3,
+        variantCount: 5,
+        emptyStyleSha256: ssEmptyStyleDigest(baseReasons.map((reason: any) => reason.styleId)),
+        ...pinsPatch,
+      },
+    };
+
+    expect(() =>
+      applySSEmptyStyleActivationException({ vendor, manifest, sourceConfig })
+    ).toThrow(error);
   });
 
   it('maps documented S&S fields including sizeOrder, dozenPrice, casePrice', async () => {
