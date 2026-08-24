@@ -9,7 +9,7 @@ export const metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default async function PricingPage() {
+export default function PricingPage() {
   if (!isPricingPreviewEnabled()) {
     notFound();
   }
