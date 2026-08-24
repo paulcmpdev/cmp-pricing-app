@@ -25,6 +25,7 @@ export default defineConfig({
     env: {
       ...process.env,
       CMP_ALLOW_LOCAL_MANAGER_MODE: "true",
+      CMP_ENABLE_PRICING_PREVIEW: "true",
     },
   },
 });
