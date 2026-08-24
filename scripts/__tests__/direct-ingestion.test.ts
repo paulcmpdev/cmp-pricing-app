@@ -750,6 +750,14 @@ describe('S&S adapter', () => {
           json: () => Promise.resolve(SS_STYLES_RESPONSE.slice(0, 2)),
         });
       }
+      if (parsedUrl.searchParams.get('styleid') === '102') {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          headers: new Map(),
+          json: () => Promise.resolve([]),
+        });
+      }
       return Promise.resolve({
         status: 200,
         ok: true,
@@ -777,6 +785,59 @@ describe('S&S adapter', () => {
       rawProductCount: 0,
       usableVariantCount: 0,
     });
+  });
+
+  it('excludes a zero-product style only after an isolated 404 confirmation', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.pathname === '/v2/styles/') {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          headers: new Map(),
+          json: () => Promise.resolve(SS_STYLES_RESPONSE.slice(0, 2)),
+        });
+      }
+      if (parsedUrl.searchParams.get('styleid') === '102') {
+        return Promise.resolve({
+          status: 404,
+          ok: false,
+          headers: new Map(),
+          json: () => Promise.resolve({}),
+        });
+      }
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        headers: new Map(),
+        json: () => Promise.resolve([SS_PRODUCTS_BATCH_1[0]]),
+      });
+    });
+
+    const styles: any[] = [];
+    const variants: any[] = [];
+    const source = createSSSource({
+      accountNumber: 'test',
+      apiKey: 'test',
+      fetch: mockFetch,
+      sleep: vi.fn(),
+    });
+
+    const manifest = await source.ingest({
+      onStyle: (style: any) => { styles.push(style); },
+      onVariant: (variant: any) => { variants.push(variant); },
+    });
+
+    expect(manifest.complete).toBe(true);
+    expect(manifest.sourceErrors).toBe(0);
+    expect(manifest.styleCount).toBe(1);
+    expect(manifest.variantCount).toBe(1);
+    expect(manifest.excludedStyleCount).toBe(1);
+    expect(manifest.excludedStyleSamples).toEqual([
+      { styleId: '102', confirmation: 'isolated_404' },
+    ]);
+    expect(styles.map((style: any) => style.sourceStyleId)).toEqual(['101']);
+    expect(variants).toHaveLength(1);
   });
 
   it('marks manifest incomplete when a requested style has raw products but zero usable priced variants', async () => {

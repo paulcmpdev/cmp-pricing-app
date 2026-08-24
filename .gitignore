@@ -14,3 +14,5 @@ qa-screenshots/
 data/*.sqlite
 data/*.sqlite-*
 *.db
+.vercel/
+.env.local
