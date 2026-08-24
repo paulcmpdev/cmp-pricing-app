@@ -133,14 +133,15 @@ SELECT
   s."baseCategory" category,
   s."description" description,
   s."styleImage" image_url,
-  COUNT(p."sku")::int active_variant_count,
+  COUNT(CASE WHEN p."piecePrice" > 0 THEN 1 END)::int active_variant_count,
   latest_success.completed_at source_sync_at
 FROM ss_styles s
 JOIN ss_products p ON p."styleID" = s."styleID"
 LEFT JOIN latest_success ON true
 GROUP BY s."styleID", s."partNumber", s."brandName", s."title", s."styleName",
   s."uniqueStyleName", s."baseCategory", s."description", s."styleImage",
-  latest_success.completed_at;
+  latest_success.completed_at
+HAVING COUNT(CASE WHEN p."piecePrice" > 0 THEN 1 END) > 0;
 `;
 
 const ssVariants = sql`
@@ -170,17 +171,13 @@ SELECT
   p."casePrice" case_price,
   p."salePrice" sale_price,
   p."customerPrice" customer_price,
-  COALESCE(NULLIF(p."customerPrice", 0), NULLIF(p."salePrice", 0), NULLIF(p."piecePrice", 0)) resolved_cost,
-  CASE
-    WHEN NULLIF(p."customerPrice", 0) IS NOT NULL THEN 'customerPrice'
-    WHEN NULLIF(p."salePrice", 0) IS NOT NULL THEN 'salePrice'
-    ELSE 'piecePrice'
-  END cost_basis,
+  p."piecePrice" resolved_cost,
+  'piecePrice' cost_basis,
   latest_success.completed_at source_sync_at
 FROM ss_products p
 JOIN ss_styles s ON s."styleID" = p."styleID"
 LEFT JOIN latest_success ON true
-WHERE COALESCE(NULLIF(p."customerPrice", 0), NULLIF(p."salePrice", 0), NULLIF(p."piecePrice", 0)) IS NOT NULL;
+WHERE p."piecePrice" > 0;
 `;
 
 const sanmarStyles = sql`
@@ -249,7 +246,7 @@ WHERE NULLIF(s."piecePrice", 0) IS NOT NULL;
 
 const invalidSs = sql`
 SELECT COUNT(*) count FROM ss_products
-WHERE COALESCE(NULLIF("customerPrice", 0), NULLIF("salePrice", 0), NULLIF("piecePrice", 0)) IS NULL;
+WHERE "piecePrice" IS NULL OR "piecePrice" <= 0;
 `;
 
 const invalidSanmar = sql`

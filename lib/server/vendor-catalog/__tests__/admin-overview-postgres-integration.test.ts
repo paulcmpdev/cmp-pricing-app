@@ -62,7 +62,7 @@ describe.skipIf(!runIntegration)("admin catalog overview PostgreSQL integration"
          (import_id, id, style_id, vendor, source_variant_id, style_code,
           resolved_cost, cost_basis)
        VALUES
-         ($1, 'ss:3001-BLK-M', 'ss:3001', 'ss', '3001-BLK-M', '3001', 4.25, 'customerPrice'),
+         ($1, 'ss:3001-BLK-M', 'ss:3001', 'ss', '3001-BLK-M', '3001', 5.00, 'piecePrice'),
          ($1, 'ss:3001-BLK-L', 'ss:3001', 'ss', '3001-BLK-L', '3001', 5.20, 'piecePrice'),
          ($2, 'sanmar:K500-RED-M', 'sanmar:K500', 'sanmar', 'K500-RED-M', 'K500', 9.75, 'piecePrice'),
          ($2, 'sanmar:K500-RED-L', 'sanmar:K500', 'sanmar', 'K500-RED-L', 'K500', 9.75, 'piecePrice')`,

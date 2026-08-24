@@ -177,6 +177,107 @@ describe.skipIf(!runIntegration)('atomic catalog rollback integration', () => {
     throw new Error('timed out waiting for PostgreSQL condition');
   }
 
+  async function seedSSPair(overrides: {
+    targetPiecePrice?: number | null;
+    targetResolvedCost?: number;
+    targetCostBasis?: string;
+  } = {}): Promise<Seed> {
+    const currentId = randomUUID();
+    const targetId = randomUUID();
+    await pool.query(
+      `INSERT INTO catalog_imports
+         (id, vendor, status, source_status, source_sync_at, activated_at,
+          style_count, variant_count, source_metadata)
+       VALUES
+         ($1, 'ss', 'active', 'ok', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1, 1, '{}'::jsonb),
+         ($2, 'ss', 'superseded', 'ok', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1, 1, '{}'::jsonb)`,
+      [currentId, targetId]
+    );
+    await pool.query(
+      `INSERT INTO active_catalog_versions (vendor, import_id) VALUES ('ss', $1)`,
+      [currentId]
+    );
+    for (const [importId, suffix, pp, rc, cb] of [
+      [currentId, 'current', 12.34, 12.34, 'piecePrice'],
+      [targetId, 'target',
+        overrides.targetPiecePrice !== undefined ? overrides.targetPiecePrice : 12.34,
+        overrides.targetResolvedCost ?? 12.34,
+        overrides.targetCostBasis ?? 'piecePrice'],
+    ] as const) {
+      await pool.query(
+        `INSERT INTO catalog_styles
+           (import_id, id, vendor, source_style_id, style_code, name, active_variant_count, source_sync_at)
+         VALUES ($1, $2, 'ss', $3, '3001', $4, 1, CURRENT_TIMESTAMP)`,
+        [importId, `ss:${suffix}:style`, `${suffix}:style`, `${suffix} retained`]
+      );
+      await pool.query(
+        `INSERT INTO catalog_variants
+           (import_id, id, style_id, vendor, source_variant_id, style_code,
+            piece_price, resolved_cost, cost_basis, source_sync_at)
+         VALUES ($1, $2, $3, 'ss', $4, '3001', $5, $6, $7, CURRENT_TIMESTAMP)`,
+        [importId, `ss:${suffix}:variant`, `ss:${suffix}:style`, `${suffix}:variant`, pp, rc, cb]
+      );
+    }
+    return { currentId, targetId };
+  }
+
+  function ssOptions(seed: Seed, hook?: (phase: RollbackTestHookPhase, client: pg.PoolClient) => Promise<void>): ExecuteCatalogRollbackOptions {
+    return {
+      vendor: 'ss',
+      expectedCurrentImportId: seed.currentId,
+      targetImportId: seed.targetId,
+      requestedBy: SECRET_ACTOR,
+      reason: SECRET_REASON,
+      ...(hook ? { testHooks: { onPhase: hook } } : {}),
+    };
+  }
+
+  it('rejects S&S rollback target with salePrice cost basis without changing state', async () => {
+    const seed = await seedSSPair({ targetCostBasis: 'salePrice' });
+    const before = await snapshot();
+    await expectRejectedWithoutSecrets(
+      executeCatalogRollback(pool, ssOptions(seed)),
+      /cost basis/i
+    );
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('rejects S&S rollback target with zero piece price without changing state', async () => {
+    const seed = await seedSSPair({ targetPiecePrice: 0, targetResolvedCost: 0 });
+    const before = await snapshot();
+    await expectRejectedWithoutSecrets(
+      executeCatalogRollback(pool, ssOptions(seed)),
+      /resolved costs/i
+    );
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('rejects S&S rollback target with resolved_cost != piece_price without changing state', async () => {
+    const seed = await seedSSPair({ targetPiecePrice: 5.00, targetResolvedCost: 4.00 });
+    const before = await snapshot();
+    await expectRejectedWithoutSecrets(
+      executeCatalogRollback(pool, ssOptions(seed)),
+      /cost basis/i
+    );
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('accepts valid S&S rollback target with piecePrice basis', async () => {
+    const seed = await seedSSPair();
+    const result = await executeCatalogRollback(pool, ssOptions(seed));
+    expect(result).toMatchObject({
+      rolledBack: true,
+      vendor: 'ss',
+      fromImportId: seed.currentId,
+      toImportId: seed.targetId,
+    });
+    const after = await snapshot();
+    expect(after.pointer.find((p: { vendor: string }) => p.vendor === 'ss')).toEqual({
+      vendor: 'ss',
+      import_id: seed.targetId,
+    });
+  });
+
   it('sanitizes client acquisition failures that contain connection credentials', async () => {
     const credentialUrl = `${TEST_PG_URL}?password=connection-secret`;
     const failingPool = {

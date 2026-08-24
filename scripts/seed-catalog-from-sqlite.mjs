@@ -21,7 +21,10 @@ import { basename } from "node:path";
 import { pipeline } from "node:stream/promises";
 import pg from "pg";
 import { VENDOR_CATALOG_POSTGRES_SCHEMA_SQL } from "../lib/server/vendor-catalog/postgres-schema.mjs";
-import { buildParameterizedInsert } from "./lib/postgres-import-helpers.mjs";
+import {
+  assertSSPiecePriceInvariant,
+  buildParameterizedInsert,
+} from "./lib/postgres-import-helpers.mjs";
 
 const require = createRequire(import.meta.url);
 const Database = require("better-sqlite3");
@@ -188,14 +191,43 @@ function validateManifestCounts(vendor) {
     throw new Error(`${vendor} has ${orphanCount} orphan variants. Refusing seed.`);
   }
 
-  // Verify zero null/negative costs
+  // Verify zero null/zero/negative costs
   const badCosts = db
     .prepare(
-      "SELECT count(*) as cnt FROM catalog_variants WHERE vendor = ? AND (resolved_cost IS NULL OR resolved_cost < 0)"
+      "SELECT count(*) as cnt FROM catalog_variants WHERE vendor = ? AND (resolved_cost IS NULL OR resolved_cost <= 0)"
     )
     .get(vendor).cnt;
   if (badCosts > 0) {
-    throw new Error(`${vendor} has ${badCosts} null/negative cost variants. Refusing seed.`);
+    throw new Error(`${vendor} has ${badCosts} null/zero/negative cost variants. Refusing seed.`);
+  }
+
+  if (vendor === "ss") {
+    const invariantFailures = db
+      .prepare(
+        `SELECT
+           count(*) FILTER (
+             WHERE piece_price IS NULL OR piece_price <= 0
+           ) AS bad_piece_price,
+           count(*) FILTER (
+             WHERE cost_basis IS NOT 'piecePrice'
+           ) AS wrong_basis,
+           count(*) FILTER (
+             WHERE resolved_cost IS NOT piece_price
+           ) AS mismatched_cost
+         FROM catalog_variants
+         WHERE vendor = ?`
+      )
+      .get(vendor);
+    const badPiecePrice = Number(invariantFailures.bad_piece_price ?? 0);
+    const wrongBasis = Number(invariantFailures.wrong_basis ?? 0);
+    const mismatchedCost = Number(invariantFailures.mismatched_cost ?? 0);
+    if (badPiecePrice > 0 || wrongBasis > 0 || mismatchedCost > 0) {
+      throw new Error(
+        `S&S SQLite source violates piece price invariant; refusing seed ` +
+          `before streaming: bad_piece_price=${badPiecePrice}, ` +
+          `wrong_basis=${wrongBasis}, mismatched_cost=${mismatchedCost}.`
+      );
+    }
   }
 
   console.log(`Manifest validated for ${vendor}: ${styleCount} styles, ${variantCount} variants.`);
@@ -339,6 +371,8 @@ async function activateImports(prepared) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('cmp-vendor-catalog:activate-all'))");
 
     for (const { importId, vendor } of prepared) {
+      await assertSSPiecePriceInvariant(client, importId);
+
       const current = await client.query(
         `SELECT import_id FROM active_catalog_versions WHERE vendor = $1 FOR UPDATE`,
         [vendor]
@@ -387,21 +421,11 @@ async function streamSqliteToTarget({
   importId,
   hash,
 }) {
-  const isVariantTable = table === "catalog_variants";
   const stmt = db.prepare(sqliteQuery);
   let batch = [];
   let total = 0;
-  let skippedInvalid = 0;
 
   for (const sourceRow of stmt.iterate(...sqliteParams)) {
-    if (isVariantTable) {
-      const cost = Number(sourceRow.resolved_cost);
-      if (!Number.isFinite(cost) || cost < 0) {
-        skippedInvalid++;
-        continue;
-      }
-    }
-
     const row = { import_id: importId, ...sourceRow };
     hash.update(JSON.stringify(row));
     hash.update("\n");
@@ -419,11 +443,7 @@ async function streamSqliteToTarget({
     total += batch.length;
   }
 
-  if (skippedInvalid > 0) {
-    console.warn(`Skipped ${skippedInvalid} ${table} rows with invalid resolved_cost.`);
-  }
-
-  return { inserted: total, skippedInvalid };
+  return { inserted: total, skippedInvalid: 0 };
 }
 
 async function insertBatch(table, columns, rows) {
@@ -442,7 +462,7 @@ async function validateImport(importId, vendor, styleCount, variantCount) {
            ON s.import_id = v.import_id AND s.id = v.style_id
          WHERE v.import_id = $1 AND s.id IS NULL) AS orphans,
        (SELECT count(*)::int FROM catalog_variants
-         WHERE import_id = $1 AND resolved_cost < 0) AS invalid_costs,
+         WHERE import_id = $1 AND resolved_cost <= 0) AS invalid_costs,
        (SELECT count(*)::int FROM catalog_styles
          WHERE import_id = $1 AND style_code = $2) AS known_styles`,
     [importId, manifest.knownStyle]

@@ -90,6 +90,30 @@ export function assertSafeCatalogCounts({
   }
 }
 
+export async function assertSSPiecePriceInvariant(target, importId) {
+  const result = await target.query(
+    `SELECT count(*)::int AS violations
+       FROM catalog_variants
+      WHERE import_id = $1
+        AND vendor = 'ss'
+        AND (
+          piece_price IS NULL OR
+          piece_price <= 0 OR
+          resolved_cost IS DISTINCT FROM piece_price OR
+          cost_basis IS DISTINCT FROM 'piecePrice'
+        )`,
+    [importId]
+  );
+  const violations = Number(result.rows[0]?.violations ?? 0);
+  if (violations > 0) {
+    throw new Error(
+      `S&S import ${importId} violates piece price activation invariant: ` +
+        `${violations} variant(s) require piece_price > 0, ` +
+        `resolved_cost = piece_price, and cost_basis = piecePrice.`
+    );
+  }
+}
+
 export function normalizeDatabaseUrlForComparison(value) {
   const url = new URL(value);
   if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {

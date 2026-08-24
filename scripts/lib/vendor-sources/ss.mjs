@@ -119,17 +119,13 @@ function normalizeProduct(raw) {
   const casePrice = parsePrice(raw.casePrice);
   const sizeOrder = raw.sizeOrder != null ? parseInt(String(raw.sizeOrder).replace(/[^0-9]/g, ''), 10) : undefined;
 
-  // Resolve cost: customerPrice > salePrice > piecePrice
+  // Resolve cost: always use piecePrice (the regular S&S price).
+  // Ignore customerPrice/salePrice for resolved cost — they are
+  // preserved as raw fields for audit/storage only.
   let resolvedCost = null;
   let costBasis = null;
 
-  if (customerPrice != null && customerPrice > 0) {
-    resolvedCost = customerPrice;
-    costBasis = 'customerPrice';
-  } else if (salePrice != null && salePrice > 0) {
-    resolvedCost = salePrice;
-    costBasis = 'salePrice';
-  } else if (piecePrice != null && piecePrice > 0) {
+  if (piecePrice != null && piecePrice > 0) {
     resolvedCost = piecePrice;
     costBasis = 'piecePrice';
   }
@@ -156,7 +152,7 @@ function normalizeProduct(raw) {
     resolvedCost,
     costBasis,
     // Mark whether this product has a resolvable price
-    _hasPrice: resolvedCost != null && Number.isFinite(resolvedCost) && resolvedCost >= 0,
+    _hasPrice: resolvedCost != null && Number.isFinite(resolvedCost) && resolvedCost > 0,
   };
 }
 
@@ -506,7 +502,7 @@ function isValidVariant(variant) {
   return (
     variant.resolvedCost != null &&
     Number.isFinite(variant.resolvedCost) &&
-    variant.resolvedCost >= 0 &&
+    variant.resolvedCost > 0 &&
     variant.sourceVariantId &&
     variant.sourceStyleId
   );

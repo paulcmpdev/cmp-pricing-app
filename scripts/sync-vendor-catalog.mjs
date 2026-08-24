@@ -24,6 +24,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { VENDOR_CATALOG_POSTGRES_SCHEMA_SQL } from '../lib/server/vendor-catalog/postgres-schema.mjs';
 import {
+  assertSSPiecePriceInvariant,
   assertSafeCatalogCounts,
   buildParameterizedInsert,
 } from './lib/postgres-import-helpers.mjs';
@@ -320,6 +321,8 @@ export async function runIngestion({
     await validateImport(target, importId, vendor, manifest.styleCount, manifest.variantCount);
 
     if (testHooks?.beforeActivation) await testHooks.beforeActivation({ jobId, owner, importId });
+
+    await assertSSPiecePriceInvariant(target, importId);
 
     // Activate and complete the owned job in one transaction.
     await activateImport(target, importId, vendor, jobId, owner, manifest);
@@ -1150,7 +1153,7 @@ async function validateImport(target, importId, vendor, styleCount, variantCount
            ON s.import_id = v.import_id AND s.id = v.style_id
          WHERE v.import_id = $1 AND s.id IS NULL) AS orphans,
        (SELECT count(*)::int FROM catalog_variants
-         WHERE import_id = $1 AND resolved_cost < 0) AS invalid_costs,
+         WHERE import_id = $1 AND resolved_cost <= 0) AS invalid_costs,
        (SELECT count(*)::int FROM catalog_styles
          WHERE import_id = $1 AND style_code = $2) AS known_styles`,
     [importId, vendor === 'ss' ? '3001' : 'K500']

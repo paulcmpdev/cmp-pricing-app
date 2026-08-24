@@ -126,6 +126,34 @@ export const SS_PRODUCT_NO_SKU = {
   piecePrice: 5.50,
 };
 
+// Product with zero piecePrice but valid customerPrice (should be skipped — fail closed)
+export const SS_PRODUCT_ZERO_PIECE_WITH_SPECIAL = {
+  styleID: 101,
+  styleName: '3001',
+  sku: 'SS-3001-NOPIECE',
+  colorName: 'Gray',
+  sizeName: 'L',
+  qty: 15,
+  customerPrice: 4.25,
+  salePrice: 3.99,
+  piecePrice: 0,
+  colorImage: null,
+};
+
+// Product with negative piecePrice but valid sale/customer prices (should be skipped — fail closed)
+export const SS_PRODUCT_NEGATIVE_PIECE = {
+  styleID: 101,
+  styleName: '3001',
+  sku: 'SS-3001-NEGPRICE',
+  colorName: 'Charcoal',
+  sizeName: 'M',
+  qty: 20,
+  customerPrice: 4.25,
+  salePrice: 3.99,
+  piecePrice: -1,
+  colorImage: null,
+};
+
 // Malformed JSON-like response
 export const SS_MALFORMED_RESPONSE = '{"not": "an array"}';
 

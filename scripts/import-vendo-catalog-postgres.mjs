@@ -12,6 +12,7 @@ import {
   SS_VARIANTS_QUERY,
 } from "./lib/vendor-catalog-source-queries.mjs";
 import {
+  assertSSPiecePriceInvariant,
   assertSafeCatalogCounts,
   buildParameterizedInsert,
   normalizeDatabaseUrlForComparison,
@@ -135,6 +136,7 @@ async function importVendor(vendor, sourceMetadata) {
       [importId, styleCount, variantCount, invalidPriceCount, hash.digest("hex")]
     );
     await validateImport(importId, vendor, styleCount, variantCount);
+    await assertSSPiecePriceInvariant(target, importId);
     await activateImport(importId, vendor);
 
     return {
@@ -182,7 +184,7 @@ async function streamIntoTarget({ query, table, columns, importId, hash }) {
       // Validate numeric cost fields on variant rows
       if (isVariantTable) {
         const cost = Number(sourceRow.resolved_cost);
-        if (!Number.isFinite(cost) || cost < 0) {
+        if (!Number.isFinite(cost) || cost <= 0) {
           skippedInvalid++;
           continue;
         }
@@ -237,7 +239,7 @@ async function validateImport(importId, vendor, styleCount, variantCount) {
            ON s.import_id = v.import_id AND s.id = v.style_id
          WHERE v.import_id = $1 AND s.id IS NULL) AS orphans,
        (SELECT count(*)::int FROM catalog_variants
-         WHERE import_id = $1 AND resolved_cost < 0) AS invalid_costs,
+         WHERE import_id = $1 AND resolved_cost <= 0) AS invalid_costs,
        (SELECT count(*)::int FROM catalog_styles
          WHERE import_id = $1 AND style_code = $2) AS known_styles`,
     [importId, vendor === "ss" ? "3001" : "K500"]

@@ -69,7 +69,7 @@ SELECT
   s."baseCategory" AS category,
   s."description" AS description,
   s."styleImage" AS image_url,
-  COUNT(CASE WHEN COALESCE(NULLIF(p."customerPrice", 0), NULLIF(p."salePrice", 0), NULLIF(p."piecePrice", 0)) IS NOT NULL THEN 1 END)::int AS active_variant_count,
+  COUNT(CASE WHEN p."piecePrice" > 0 THEN 1 END)::int AS active_variant_count,
   latest_success.completed_at AS source_sync_at
 FROM ss_styles s
 JOIN hs_products h
@@ -80,7 +80,8 @@ JOIN ss_products p ON p."styleID" = s."styleID"
 LEFT JOIN latest_success ON true
 GROUP BY s."styleID", s."brandName", s."title", s."styleName",
   s."uniqueStyleName", s."baseCategory", s."description", s."styleImage",
-  latest_success.completed_at`;
+  latest_success.completed_at
+HAVING COUNT(CASE WHEN p."piecePrice" > 0 THEN 1 END) > 0`;
 
 export const SS_VARIANTS_QUERY = `
 WITH latest_success AS (
@@ -111,12 +112,8 @@ SELECT
   p."casePrice" AS case_price,
   p."salePrice" AS sale_price,
   p."customerPrice" AS customer_price,
-  COALESCE(NULLIF(p."customerPrice", 0), NULLIF(p."salePrice", 0), NULLIF(p."piecePrice", 0)) AS resolved_cost,
-  CASE
-    WHEN NULLIF(p."customerPrice", 0) IS NOT NULL THEN 'customerPrice'
-    WHEN NULLIF(p."salePrice", 0) IS NOT NULL THEN 'salePrice'
-    ELSE 'piecePrice'
-  END AS cost_basis,
+  p."piecePrice" AS resolved_cost,
+  'piecePrice' AS cost_basis,
   latest_success.completed_at AS source_sync_at
 FROM ss_products p
 JOIN ss_styles s ON s."styleID" = p."styleID"
@@ -125,7 +122,7 @@ JOIN hs_products h
  AND h.vendor = 'S&S Activewear'
  AND COALESCE(h.discontinued, false) = false
 LEFT JOIN latest_success ON true
-WHERE COALESCE(NULLIF(p."customerPrice", 0), NULLIF(p."salePrice", 0), NULLIF(p."piecePrice", 0)) IS NOT NULL`;
+WHERE p."piecePrice" > 0`;
 
 export const SANMAR_STYLES_QUERY = `
 WITH latest_success AS (
@@ -190,6 +187,6 @@ LEFT JOIN latest_success ON true
 WHERE NULLIF(s."piecePrice", 0) IS NOT NULL`;
 
 export const INVALID_PRICE_QUERIES = {
-  ss: `SELECT COUNT(*)::int AS count FROM ss_products WHERE COALESCE(NULLIF("customerPrice", 0), NULLIF("salePrice", 0), NULLIF("piecePrice", 0)) IS NULL`,
+  ss: `SELECT COUNT(*)::int AS count FROM ss_products WHERE "piecePrice" IS NULL OR "piecePrice" <= 0`,
   sanmar: `SELECT COUNT(*)::int AS count FROM sanmar_styles WHERE NULLIF("piecePrice", 0) IS NULL`,
 };

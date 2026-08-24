@@ -710,7 +710,8 @@ describe.skipIf(!runIntegration)(
       expect(variants.length).toBeGreaterThan(0);
       expect(Object.keys(variants[0]).join(' ')).not.toMatch(/cost|price|cogs/i);
       const cost = await repo().resolveVariantCost('ss:SS-3001-BLK-M');
-      expect(cost?.unitCost).toBe(4.25);
+      expect(cost?.unitCost).toBe(5.50);
+      expect(cost?.costBasis).toBe('piecePrice');
     });
 
     it('keeps activated data intact after a post-activation failure and cleans a pre-activation failure', async () => {
@@ -1025,6 +1026,57 @@ INV004|S04|PC61|Navy|M|WH1|100|4.50|54.00||||||PC61-NVY-M|
       expect(checks.rows[0].active_import_id).toBe(priorImportId);
       expect(checks.rows[0].lease_owner).toBe('new-owner');
       expect(checks.rows[0].status).toBe('validating');
+      expect(checks.rows[0].staged_styles).toBe(0);
+      expect(checks.rows[0].staged_variants).toBe(0);
+    });
+
+    it('rejects S&S piece-price invariant drift immediately before activation and preserves the active pointer', async () => {
+      await resetVendor('ss');
+      const priorImportId = await seedActiveBaseline('ss', { styles: 3, variants: 5 });
+
+      await expect(runIngestion({
+        vendor: 'ss',
+        target: pool,
+        sourceConfig: { type: 'ss-api', accountNumber: 'acct', apiKey: 'api-key' },
+        fetch: ssFetchFixture(),
+        sleep: async () => {},
+        batchSize: 2,
+        leaseOwner: 'ss-piece-price-invariant-owner',
+        testHooks: {
+          beforeActivation: async ({ importId }: { importId: string }) => {
+            await pool.query(
+              `UPDATE catalog_variants
+               SET resolved_cost = piece_price - 0.01
+               WHERE import_id = $1
+                 AND vendor = 'ss'
+                 AND id = (
+                   SELECT id FROM catalog_variants
+                   WHERE import_id = $1 AND vendor = 'ss'
+                   ORDER BY id
+                   LIMIT 1
+                 )`,
+              [importId]
+            );
+          },
+        },
+      })).rejects.toThrow(/piece price activation invariant/i);
+
+      const checks = await pool.query(
+        `SELECT
+           (SELECT import_id FROM active_catalog_versions WHERE vendor = 'ss') AS active_import_id,
+           j.import_id,
+           j.status,
+           (SELECT status FROM catalog_imports WHERE id = j.import_id) AS rejected_status,
+           (SELECT count(*)::int FROM catalog_styles WHERE import_id = j.import_id) AS staged_styles,
+           (SELECT count(*)::int FROM catalog_variants WHERE import_id = j.import_id) AS staged_variants
+         FROM catalog_ingestion_jobs j
+         WHERE j.vendor = 'ss'
+         ORDER BY j.created_at DESC
+         LIMIT 1`
+      );
+      expect(checks.rows[0].active_import_id).toBe(priorImportId);
+      expect(checks.rows[0].status).toBe('rejected');
+      expect(checks.rows[0].rejected_status).toBe('rejected');
       expect(checks.rows[0].staged_styles).toBe(0);
       expect(checks.rows[0].staged_variants).toBe(0);
     });

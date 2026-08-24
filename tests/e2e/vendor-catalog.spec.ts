@@ -194,8 +194,8 @@ test.describe("Quote Desk vendor catalog mode", () => {
                   styleCode: "3001",
                   color: "Black",
                   size: "M",
-                  unitCost: 4.25,
-                  costBasis: "customerPrice",
+                  unitCost: 5.00,
+                  costBasis: "piecePrice",
                   sourceSyncAt: "2025-09-09T00:00:00.000Z",
                 },
               }

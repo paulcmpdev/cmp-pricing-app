@@ -5,11 +5,36 @@ import {
   inspectRollbackState,
   parseRollbackArgs,
 } from "../lib/catalog-rollback.mjs";
-import type { RollbackState } from "../lib/catalog-rollback.mjs";
 
 const CURRENT_ID = "11111111-1111-4111-8111-111111111111";
 const TARGET_ID = "22222222-2222-4222-8222-222222222222";
 const TARGET_URL = "postgres://rollback_user:top-secret@db.internal/catalog";
+
+type RollbackState = {
+  vendor: string;
+  expectedCurrentImportId: string;
+  targetImportId: string;
+  live: { importId: string | null; status: string | null };
+  target: {
+    exists: boolean;
+    vendor: string | null;
+    status: string | null;
+    actualStyleCount: number;
+    actualVariantCount: number;
+    storedStyleCount: number | null;
+    storedVariantCount: number | null;
+    orphanVariantCount: number;
+    invalidResolvedCostCount: number;
+    ssBasisViolationCount: number;
+    nullStyleSourceSyncAtCount: number;
+    nullVariantSourceSyncAtCount: number;
+    knownStylePresent: boolean;
+    sourceSyncAt: unknown;
+    activatedAt: unknown;
+    importedAt: unknown;
+  };
+  nonTerminalJobs: { count: number; statuses: Array<{ status: string; count: number }> };
+};
 
 function validArgv(overrides: Record<string, string> = {}) {
   const values = {
@@ -26,7 +51,7 @@ function validArgv(overrides: Record<string, string> = {}) {
 
 function safeState(
   overrides: Record<string, unknown> = {}
-): RollbackState & Record<string, unknown> {
+): any {
   return {
     vendor: "sanmar",
     expectedCurrentImportId: CURRENT_ID,
@@ -42,6 +67,7 @@ function safeState(
       storedVariantCount: 100,
       orphanVariantCount: 0,
       invalidResolvedCostCount: 0,
+      ssBasisViolationCount: 0,
       nullStyleSourceSyncAtCount: 0,
       nullVariantSourceSyncAtCount: 0,
       knownStylePresent: true,
@@ -214,6 +240,7 @@ describe("inspectRollbackState", () => {
       stored_variant_count: 100,
       orphan_variant_count: "0",
       invalid_resolved_cost_count: "0",
+      ss_basis_violation_count: "0",
       null_style_source_sync_at_count: "0",
       null_variant_source_sync_at_count: "0",
       known_style_present: true,
@@ -271,6 +298,7 @@ describe("inspectRollbackState", () => {
         storedVariantCount: 100,
         orphanVariantCount: 0,
         invalidResolvedCostCount: 0,
+        ssBasisViolationCount: 0,
         nullStyleSourceSyncAtCount: 0,
         nullVariantSourceSyncAtCount: 0,
         knownStylePresent: true,
@@ -293,6 +321,67 @@ describe("inspectRollbackState", () => {
     }
   });
 
+  it("returns ssBasisViolationCount from database row", async () => {
+    const row = {
+      live_import_id: CURRENT_ID,
+      live_import_status: "active",
+      target_exists: true,
+      target_vendor: "ss",
+      target_status: "superseded",
+      actual_style_count: "20",
+      actual_variant_count: "100",
+      stored_style_count: 20,
+      stored_variant_count: 100,
+      orphan_variant_count: "0",
+      invalid_resolved_cost_count: "0",
+      null_style_source_sync_at_count: "0",
+      null_variant_source_sync_at_count: "0",
+      known_style_present: true,
+      target_source_sync_at: null,
+      target_activated_at: null,
+      target_imported_at: new Date("2026-08-01T11:55:00Z"),
+      ss_basis_violation_count: "3",
+    };
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [row] })
+      .mockResolvedValueOnce({ rows: [] });
+    const state = await inspectRollbackState(
+      { query },
+      { vendor: "ss", expectedCurrentImportId: CURRENT_ID, targetImportId: TARGET_ID }
+    );
+    expect((state.target as RollbackState["target"]).ssBasisViolationCount).toBe(3);
+  });
+
+  it("allows non-S&S inspection rows that omit ssBasisViolationCount", async () => {
+    const row = {
+      live_import_id: CURRENT_ID,
+      live_import_status: "active",
+      target_exists: true,
+      target_vendor: "sanmar",
+      target_status: "superseded",
+      actual_style_count: "20",
+      actual_variant_count: "100",
+      stored_style_count: 20,
+      stored_variant_count: 100,
+      orphan_variant_count: "0",
+      invalid_resolved_cost_count: "0",
+      null_style_source_sync_at_count: "0",
+      null_variant_source_sync_at_count: "0",
+      known_style_present: true,
+      target_source_sync_at: null,
+      target_activated_at: null,
+      target_imported_at: new Date("2026-08-01T11:55:00Z"),
+    };
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [row] })
+      .mockResolvedValueOnce({ rows: [] });
+    const state = await inspectRollbackState(
+      { query },
+      { vendor: "sanmar", expectedCurrentImportId: CURRENT_ID, targetImportId: TARGET_ID }
+    );
+    expect((state.target as RollbackState["target"]).ssBasisViolationCount).toBe(0);
+  });
+
   it("uses the SS known style and represents a missing target safely", async () => {
     const query = vi
       .fn()
@@ -305,6 +394,7 @@ describe("inspectRollbackState", () => {
           stored_variant_count: null,
           orphan_variant_count: "0",
           invalid_resolved_cost_count: "0",
+          ss_basis_violation_count: "0",
           null_style_source_sync_at_count: "0",
           null_variant_source_sync_at_count: "0",
           known_style_present: false,
@@ -397,6 +487,7 @@ describe("inspectRollbackState", () => {
       stored_variant_count: null,
       orphan_variant_count: "0",
       invalid_resolved_cost_count: "0",
+      ss_basis_violation_count: "0",
       null_style_source_sync_at_count: "0",
       null_variant_source_sync_at_count: "0",
       known_style_present: false,
@@ -561,12 +652,41 @@ describe("assertRollbackStateSafe", () => {
     ["zero styles", { target: { ...safeState().target, actualStyleCount: 0, storedStyleCount: 0 } }, /zero styles/i],
     ["zero variants", { target: { ...safeState().target, actualVariantCount: 0, storedVariantCount: 0 } }, /zero variants/i],
     ["orphans", { target: { ...safeState().target, orphanVariantCount: 1 } }, /orphan/i],
-    ["invalid costs", { target: { ...safeState().target, invalidResolvedCostCount: 1 } }, /null or negative resolved costs/i],
+    ["invalid costs", { target: { ...safeState().target, invalidResolvedCostCount: 1 } }, /null, zero, or negative resolved costs/i],
     ["null style timestamps", { target: { ...safeState().target, nullStyleSourceSyncAtCount: 1 } }, /style source timestamps/i],
     ["null variant timestamps", { target: { ...safeState().target, nullVariantSourceSyncAtCount: 1 } }, /variant source timestamps/i],
     ["missing known style", { target: { ...safeState().target, knownStylePresent: false } }, /known style/i],
   ])("fails closed for %s", (_name, override, message) => {
     expect(() => assertRollbackStateSafe(safeState(override))).toThrow(message);
+  });
+
+  describe("S&S cost basis invariant", () => {
+    it("rejects S&S target with non-piecePrice cost basis violations", () => {
+      const state = safeState({
+        vendor: "ss",
+        target: { ...safeState().target, vendor: "ss", ssBasisViolationCount: 1 },
+      });
+      expect(() => assertRollbackStateSafe(state)).toThrow(/S&S.*cost basis/i);
+    });
+
+    it("accepts S&S target with zero basis violations and returns ssBasisViolationCount", () => {
+      const state = safeState({
+        vendor: "ss",
+        target: { ...safeState().target, vendor: "ss", ssBasisViolationCount: 0 },
+      });
+      const result = assertRollbackStateSafe(state);
+      expect(result.target).toHaveProperty("ssBasisViolationCount", 0);
+    });
+
+    it("treats ssBasisViolationCount as a required count field for validation", () => {
+      const { ssBasisViolationCount: _removed, ...targetWithoutSsBasisViolationCount } = safeState().target;
+      const state = safeState({
+        vendor: "ss",
+        target: { ...targetWithoutSsBasisViolationCount, vendor: "ss" },
+      });
+      // Without ssBasisViolationCount, the count validation should fail
+      expect(() => assertRollbackStateSafe(state)).toThrow(/preflight failed/i);
+    });
   });
 
   it("does not leak arbitrary fields or values through validation results or errors", () => {

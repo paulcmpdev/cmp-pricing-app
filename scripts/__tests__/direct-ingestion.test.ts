@@ -22,6 +22,8 @@ import {
   SS_PRODUCTS_BATCH_2,
   SS_PRODUCT_NO_PRICE,
   SS_PRODUCT_NO_SKU,
+  SS_PRODUCT_ZERO_PIECE_WITH_SPECIAL,
+  SS_PRODUCT_NEGATIVE_PIECE,
   SS_STYLE_MISSING_FIELDS,
 } from '../../tests/fixtures/vendor-sources/ss-fixtures.mjs';
 import {
@@ -642,7 +644,7 @@ describe('S&S adapter', () => {
     expect(ids1).toHaveLength(50);
   });
 
-  it('resolves cost priority: customerPrice > salePrice > piecePrice', async () => {
+  it('resolves S&S cost to piecePrice (ignoring customerPrice/salePrice)', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       status: 200,
       ok: true,
@@ -662,13 +664,80 @@ describe('S&S adapter', () => {
       products.push(p);
     }
 
+    // customerPrice=4.25 is lower, but resolvedCost must be piecePrice=5.50
     const blkS = products.find((p: any) => p.sourceVariantId === 'SS-3001-BLK-S');
-    expect(blkS?.resolvedCost).toBe(4.25);
-    expect(blkS?.costBasis).toBe('customerPrice');
+    expect(blkS?.resolvedCost).toBe(5.50);
+    expect(blkS?.costBasis).toBe('piecePrice');
 
     const whtL = products.find((p: any) => p.sourceVariantId === 'SS-3001-WHT-L');
     expect(whtL?.resolvedCost).toBe(5.50);
     expect(whtL?.costBasis).toBe('piecePrice');
+  });
+
+  it('resolves S&S cost to piecePrice even when customerPrice/salePrice are lower', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Map(),
+      json: () => Promise.resolve(SS_PRODUCTS_BATCH_1),
+    });
+
+    const source = createSSSource({
+      accountNumber: 'test',
+      apiKey: 'test',
+      fetch: mockFetch,
+      sleep: vi.fn(),
+    });
+
+    const products: any[] = [];
+    for await (const p of source.fetchProducts(['101', '102'])) {
+      products.push(p);
+    }
+
+    // SS-3001-BLK-S: customerPrice=4.25, salePrice=0, piecePrice=5.50
+    // Business rule: always use piecePrice (regular S&S price)
+    const blkS = products.find((p: any) => p.sourceVariantId === 'SS-3001-BLK-S');
+    expect(blkS?.resolvedCost).toBe(5.50);
+    expect(blkS?.costBasis).toBe('piecePrice');
+
+    // SS-3001-BLK-M: customerPrice=4.25, salePrice=3.99, piecePrice=5.50
+    const blkM = products.find((p: any) => p.sourceVariantId === 'SS-3001-BLK-M');
+    expect(blkM?.resolvedCost).toBe(5.50);
+    expect(blkM?.costBasis).toBe('piecePrice');
+
+    // SS-5000-RED-XL: customerPrice=3.10, salePrice=0, piecePrice=4.00
+    const redXL = products.find((p: any) => p.sourceVariantId === 'SS-5000-RED-XL');
+    expect(redXL?.resolvedCost).toBe(4.00);
+    expect(redXL?.costBasis).toBe('piecePrice');
+
+    // Raw price fields preserved for audit
+    expect(blkS?.customerPrice).toBe(4.25);
+    expect(blkM?.salePrice).toBe(3.99);
+    expect(blkM?.customerPrice).toBe(4.25);
+  });
+
+  it('skips S&S variant when piecePrice is zero even if customerPrice/salePrice are valid', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Map(),
+      json: () => Promise.resolve([SS_PRODUCT_ZERO_PIECE_WITH_SPECIAL]),
+    });
+
+    const source = createSSSource({
+      accountNumber: 'test',
+      apiKey: 'test',
+      fetch: mockFetch,
+      sleep: vi.fn(),
+    });
+
+    const products: any[] = [];
+    for await (const p of source.fetchProducts(['101'])) {
+      products.push(p);
+    }
+
+    // piecePrice=0, customerPrice=4.25, salePrice=3.99 → fail closed, no fallback
+    expect(products).toHaveLength(0);
   });
 
   it('products without valid price are not yielded', async () => {
@@ -1155,6 +1224,70 @@ describe('S&S adapter', () => {
       expect(url).not.toContain('MY_SECRET_ACCOUNT');
       expect(url).not.toContain('MY_SECRET_KEY');
     }
+  });
+
+  it('skips S&S variant when piecePrice is negative even if customerPrice/salePrice are valid', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Map(),
+      json: () => Promise.resolve([SS_PRODUCT_NEGATIVE_PIECE]),
+    });
+
+    const source = createSSSource({
+      accountNumber: 'test',
+      apiKey: 'test',
+      fetch: mockFetch,
+      sleep: vi.fn(),
+    });
+
+    const products: any[] = [];
+    for await (const p of source.fetchProducts(['101'])) {
+      products.push(p);
+    }
+
+    // piecePrice=-1, customerPrice=4.25, salePrice=3.99 → fail closed, no fallback
+    expect(products).toHaveLength(0);
+  });
+
+  it('negative piecePrice is counted as skipped during ingest (not imported)', async () => {
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.pathname === '/v2/styles/') {
+        return Promise.resolve({
+          status: 200,
+          ok: true,
+          headers: new Map(),
+          json: () => Promise.resolve([SS_STYLES_RESPONSE[0]]),
+        });
+      }
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        headers: new Map(),
+        json: () => Promise.resolve([SS_PRODUCTS_BATCH_1[0], SS_PRODUCT_NEGATIVE_PIECE]),
+      });
+    });
+
+    const variants: any[] = [];
+    const source = createSSSource({
+      accountNumber: 'test',
+      apiKey: 'test',
+      fetch: mockFetch,
+      sleep: vi.fn(),
+    });
+
+    const manifest = await source.ingest({
+      onStyle: () => {},
+      onVariant: (v: any) => { variants.push(v); },
+    });
+
+    expect(manifest.skippedCount).toBe(1);
+    expect(manifest.variantCount).toBe(1);
+    expect(variants).toHaveLength(1);
+    // The valid variant should have positive piecePrice
+    expect(variants[0].resolvedCost).toBe(5.50);
+    expect(variants[0].costBasis).toBe('piecePrice');
   });
 
   it('cancellation aborts S&S fetch between batches', async () => {
@@ -1799,6 +1932,17 @@ describe('sync-vendor-catalog orchestrator', () => {
       'utf8'
     );
     expect(source).toContain('export async function runIngestion');
+  });
+
+  it('asserts the S&S piece-price invariant after validation and immediately before activation', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'scripts/sync-vendor-catalog.mjs'),
+      'utf8'
+    );
+    expect(source).toMatch(
+      /await validateImport\(target, importId, vendor, manifest\.styleCount, manifest\.variantCount\);\s*if \(testHooks\?\.beforeActivation\) await testHooks\.beforeActivation\(\{ jobId, owner, importId \}\);\s*await assertSSPiecePriceInvariant\(target, importId\);\s*\/\/ Activate/
+    );
+    expect(source).toContain("Delta mode is only supported for sanmar");
   });
 
   it('supports explicit SanMar SOAP and local-file source configuration', () => {

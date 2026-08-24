@@ -121,8 +121,13 @@ WITH target AS (
 ), variant_stats AS (
   SELECT count(*)::bigint AS actual_variant_count,
          count(*) FILTER (WHERE v.source_sync_at IS NULL)::bigint AS null_variant_source_sync_at_count,
-         count(*) FILTER (WHERE v.resolved_cost IS NULL OR v.resolved_cost < 0)::bigint AS invalid_resolved_cost_count,
-         count(*) FILTER (WHERE s.id IS NULL)::bigint AS orphan_variant_count
+         count(*) FILTER (WHERE v.resolved_cost IS NULL OR v.resolved_cost <= 0)::bigint AS invalid_resolved_cost_count,
+         count(*) FILTER (WHERE s.id IS NULL)::bigint AS orphan_variant_count,
+         count(*) FILTER (WHERE $1 = 'ss' AND (
+           v.piece_price IS NULL OR v.piece_price <= 0 OR
+           v.cost_basis IS DISTINCT FROM 'piecePrice' OR
+           v.resolved_cost IS DISTINCT FROM v.piece_price
+         ))::bigint AS ss_basis_violation_count
     FROM catalog_variants v
     LEFT JOIN catalog_styles s ON s.import_id = v.import_id AND s.id = v.style_id
    WHERE v.import_id = $3
@@ -138,6 +143,7 @@ SELECT l.import_id AS live_import_id,
        vs.actual_variant_count,
        vs.orphan_variant_count,
        vs.invalid_resolved_cost_count,
+       vs.ss_basis_violation_count,
        ss.null_style_source_sync_at_count,
        vs.null_variant_source_sync_at_count,
        coalesce(ss.known_style_present, false) AS known_style_present,
@@ -178,6 +184,41 @@ function databaseCount(value, nullable = false) {
   inspectionError();
 }
 
+/**
+ * @typedef {Object} RollbackTargetState
+ * @property {boolean} exists
+ * @property {string | null} vendor
+ * @property {string | null} status
+ * @property {number} actualStyleCount
+ * @property {number} actualVariantCount
+ * @property {number | null} storedStyleCount
+ * @property {number | null} storedVariantCount
+ * @property {number} orphanVariantCount
+ * @property {number} invalidResolvedCostCount
+ * @property {number} ssBasisViolationCount
+ * @property {number} nullStyleSourceSyncAtCount
+ * @property {number} nullVariantSourceSyncAtCount
+ * @property {boolean} knownStylePresent
+ * @property {unknown} sourceSyncAt
+ * @property {unknown} activatedAt
+ * @property {unknown} importedAt
+ */
+
+/**
+ * @typedef {Object} RollbackState
+ * @property {"ss" | "sanmar" | string} vendor
+ * @property {string} expectedCurrentImportId
+ * @property {string} targetImportId
+ * @property {{ importId: string | null, status: string | null }} live
+ * @property {RollbackTargetState} target
+ * @property {{ count: number, statuses: Array<{ status: string, count: number }> }} nonTerminalJobs
+ */
+
+/**
+ * @param {{ query(sql: string, params?: readonly unknown[]): Promise<{ rows?: Record<string, unknown>[] }> }} queryable
+ * @param {{ vendor: "ss" | "sanmar", expectedCurrentImportId: string, targetImportId: string }} options
+ * @returns {Promise<RollbackState>}
+ */
 export async function inspectRollbackState(queryable, options) {
   const knownStyle = KNOWN_STYLES[options.vendor];
   if (!knownStyle) throw new SafeRollbackError("Rollback inspection error: unsupported vendor");
@@ -190,6 +231,11 @@ export async function inspectRollbackState(queryable, options) {
   const jobsResult = await queryable.query(JOBS_SQL, [options.vendor]);
   const row = stateResult.rows?.[0] ?? {};
   const targetExists = row.target_exists === true;
+  const ssBasisViolationCount = options.vendor === "ss"
+    ? databaseCount(row.ss_basis_violation_count)
+    : row.ss_basis_violation_count == null
+      ? 0
+      : databaseCount(row.ss_basis_violation_count);
   const jobRows = jobsResult.rows;
   if (!Array.isArray(jobRows) || jobRows.length > 3) inspectionError();
   const seenStatuses = new Set();
@@ -229,6 +275,7 @@ export async function inspectRollbackState(queryable, options) {
       storedVariantCount: databaseCount(row.stored_variant_count, !targetExists),
       orphanVariantCount: databaseCount(row.orphan_variant_count),
       invalidResolvedCostCount: databaseCount(row.invalid_resolved_cost_count),
+      ssBasisViolationCount,
       nullStyleSourceSyncAtCount: databaseCount(row.null_style_source_sync_at_count),
       nullVariantSourceSyncAtCount: databaseCount(row.null_variant_source_sync_at_count),
       knownStylePresent: row.known_style_present === true,
@@ -295,6 +342,10 @@ function normalizedTimestamp(value, nullable) {
   return parsed.toISOString();
 }
 
+/**
+ * @param {any} state
+ * @returns {RollbackState}
+ */
 export function assertRollbackStateSafe(state) {
   const live = state?.live;
   const target = state?.target;
@@ -341,13 +392,16 @@ export function assertRollbackStateSafe(state) {
     target.nullStyleSourceSyncAtCount,
     target.nullVariantSourceSyncAtCount,
   ];
+  if (vendor === "ss") countFields.push(target.ssBasisViolationCount);
   if (!countFields.every(validCount)) safetyError("target catalog counts are invalid");
   if (target.actualStyleCount !== target.storedStyleCount) safetyError("target style count mismatch");
   if (target.actualVariantCount !== target.storedVariantCount) safetyError("target variant count mismatch");
   if (target.actualStyleCount === 0) safetyError("target catalog has zero styles");
   if (target.actualVariantCount === 0) safetyError("target catalog has zero variants");
   if (target.orphanVariantCount !== 0) safetyError("target catalog contains orphan variants");
-  if (target.invalidResolvedCostCount !== 0) safetyError("target catalog contains null or negative resolved costs");
+  if (target.invalidResolvedCostCount !== 0) safetyError("target catalog contains null, zero, or negative resolved costs");
+  const ssBasisViolationCount = vendor === "ss" ? target.ssBasisViolationCount : 0;
+  if (ssBasisViolationCount !== 0) safetyError("target catalog contains S&S variants with invalid cost basis");
   if (target.nullStyleSourceSyncAtCount !== 0) safetyError("target catalog has null style source timestamps");
   if (target.nullVariantSourceSyncAtCount !== 0) safetyError("target catalog has null variant source timestamps");
   if (target.knownStylePresent !== true) safetyError("target catalog is missing the known style");
@@ -371,6 +425,7 @@ export function assertRollbackStateSafe(state) {
       storedVariantCount: target.storedVariantCount,
       orphanVariantCount: target.orphanVariantCount,
       invalidResolvedCostCount: target.invalidResolvedCostCount,
+      ssBasisViolationCount,
       nullStyleSourceSyncAtCount: target.nullStyleSourceSyncAtCount,
       nullVariantSourceSyncAtCount: target.nullVariantSourceSyncAtCount,
       knownStylePresent: target.knownStylePresent,

@@ -151,8 +151,8 @@ describe("vendor catalog repository", () => {
     useFixtureDb();
 
     await expect(resolveCatalogVariantCost("ss:3001-BLK-M")).resolves.toMatchObject({
-      unitCost: 4.25,
-      costBasis: "customerPrice",
+      unitCost: 5.00,
+      costBasis: "piecePrice",
       vendor: "ss",
       variantId: "ss:3001-BLK-M",
     });
