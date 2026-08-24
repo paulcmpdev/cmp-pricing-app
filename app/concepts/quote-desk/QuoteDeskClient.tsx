@@ -38,6 +38,7 @@ const FLAT_FEE_SERVICES = [
 // ---------------------------------------------------------------------------
 interface Props {
   catalog: CatalogEntry[];
+  mode?: "primary" | "evaluation";
 }
 
 type Role = "staff" | "manager";
@@ -71,13 +72,15 @@ function uniqueValues(values: (string | null)[]): string[] {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-export default function QuoteDeskClient({ catalog }: Props) {
+export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props) {
+  const isPrimary = mode === "primary";
+
   // Group catalog by category
   const categories = Array.from(new Set(catalog.map((p) => p.category)));
 
   // --- State ---
   const [role, setRole] = useState<Role>("staff");
-  const [productMode, setProductMode] = useState<ProductMode>("catalog");
+  const [productMode, setProductMode] = useState<ProductMode>(isPrimary ? "vendor" : "catalog");
   const [selectedSku, setSelectedSku] = useState("");
   const [manualCost, setManualCost] = useState("");
   const [vendorFilter, setVendorFilter] = useState<VendorFilter>("all");
@@ -375,86 +378,82 @@ export default function QuoteDeskClient({ catalog }: Props) {
   const orderTotal =
     (itemQuote?.salesOrderTotal ?? 0) + (flatFeeQuote?.addOnTotal ?? 0);
 
+  // Mode button order: primary leads with Vendor, evaluation leads with CMP
+  const modeButtons: { key: ProductMode; label: string }[] = isPrimary
+    ? [
+        { key: "vendor", label: "Vendor Catalog" },
+        { key: "catalog", label: "CMP Catalog" },
+        { key: "manual", label: "Manual Cost" },
+      ]
+    : [
+        { key: "catalog", label: "CMP Catalog" },
+        { key: "vendor", label: "Vendor Catalog" },
+        { key: "manual", label: "Manual Cost" },
+      ];
+
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4 lg:py-6">
-      {/* Role toggle */}
-      <div className="flex items-center justify-end mb-4 gap-2">
-        <span className="text-xs text-cmp-gray uppercase tracking-wider">
-          View mode:
-        </span>
-        <button
-          onClick={() => changeRole(role === "staff" ? "manager" : "staff")}
-          className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus-visible:outline-cmp-cyan ${
-            role === "manager" ? "bg-cmp-cyan" : "bg-cmp-gray-light"
-          }`}
-          role="switch"
-          aria-checked={role === "manager"}
-          aria-label="Toggle Manager mode"
-        >
-          <span
-            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
-              role === "manager" ? "translate-x-8" : "translate-x-1"
-            }`}
-          />
-        </button>
-        <span className="text-xs font-medium min-w-[56px]">
-          {role === "manager" ? "Manager" : "Staff"}
-        </span>
-        {role === "manager" && (
-          <span className="text-[10px] text-cmp-warning bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-            Local evaluation only
+    <div className="mx-auto max-w-6xl px-4 py-3 lg:py-4">
+      {/* Role toggle — evaluation mode only */}
+      {!isPrimary && (
+        <div className="flex items-center justify-end mb-3 gap-2">
+          <span className="text-xs text-cmp-gray uppercase tracking-wider">
+            View mode:
           </span>
-        )}
-      </div>
+          <button
+            onClick={() => changeRole(role === "staff" ? "manager" : "staff")}
+            className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus-visible:outline-cmp-cyan ${
+              role === "manager" ? "bg-cmp-cyan" : "bg-cmp-gray-light"
+            }`}
+            role="switch"
+            aria-checked={role === "manager"}
+            aria-label="Toggle Manager mode"
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+                role === "manager" ? "translate-x-8" : "translate-x-1"
+              }`}
+            />
+          </button>
+          <span className="text-xs font-medium min-w-[56px]">
+            {role === "manager" ? "Manager" : "Staff"}
+          </span>
+          {role === "manager" && (
+            <span className="text-[10px] text-cmp-warning bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+              Local evaluation only
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Split pane: inputs left, summary right */}
-      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
+      <div className="flex flex-col lg:flex-row gap-3 lg:gap-5">
         {/* LEFT: Inputs */}
-        <div className="flex-1 space-y-4 min-w-0">
-          {/* Product Selection */}
-          <section className="cmp-card p-4 sm:p-5" aria-labelledby="product-heading">
+        <div className="flex-1 space-y-3 min-w-0">
+          {/* Product + Quantity (combined card) */}
+          <section className="cmp-card p-4" aria-labelledby="product-heading">
             <h2
               id="product-heading"
-              className="text-sm font-bold uppercase tracking-wider text-cmp-charcoal mb-3 font-display"
+              className="text-xs font-bold uppercase tracking-wider text-cmp-charcoal mb-2.5 font-display"
             >
               Product
             </h2>
 
             {/* Mode toggle */}
-            <div className="flex gap-2 mb-3" role="group" aria-label="Product input mode">
-              <button
-                onClick={() => changeProductMode("catalog")}
-                aria-pressed={productMode === "catalog"}
-                className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
-                  productMode === "catalog"
-                    ? "bg-cmp-cyan text-white"
-                    : "bg-cmp-surface text-cmp-gray hover:text-cmp-charcoal"
-                }`}
-              >
-                CMP Catalog
-              </button>
-              <button
-                onClick={() => changeProductMode("vendor")}
-                aria-pressed={productMode === "vendor"}
-                className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
-                  productMode === "vendor"
-                    ? "bg-cmp-cyan text-white"
-                    : "bg-cmp-surface text-cmp-gray hover:text-cmp-charcoal"
-                }`}
-              >
-                Vendor Catalog
-              </button>
-              <button
-                onClick={() => changeProductMode("manual")}
-                aria-pressed={productMode === "manual"}
-                className={`text-xs px-3 py-1.5 rounded-md font-medium transition-colors ${
-                  productMode === "manual"
-                    ? "bg-cmp-cyan text-white"
-                    : "bg-cmp-surface text-cmp-gray hover:text-cmp-charcoal"
-                }`}
-              >
-                Manual Cost
-              </button>
+            <div className="flex gap-1.5 mb-3" role="group" aria-label="Product input mode">
+              {modeButtons.map((btn) => (
+                <button
+                  key={btn.key}
+                  onClick={() => changeProductMode(btn.key)}
+                  aria-pressed={productMode === btn.key}
+                  className={`text-xs px-2.5 py-1 rounded font-medium transition-colors ${
+                    productMode === btn.key
+                      ? "bg-cmp-cyan text-white"
+                      : "bg-cmp-surface text-cmp-gray hover:text-cmp-charcoal"
+                  }`}
+                >
+                  {btn.label}
+                </button>
+              ))}
             </div>
 
             {productMode === "catalog" ? (
@@ -482,14 +481,14 @@ export default function QuoteDeskClient({ catalog }: Props) {
                   ))}
                 </select>
                 {selectedProduct && (
-                  <p className="mt-1.5 text-xs text-cmp-gray">
+                  <p className="mt-1 text-xs text-cmp-gray">
                     {selectedProduct.name}
                   </p>
                 )}
               </div>
             ) : productMode === "vendor" ? (
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-3">
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] gap-2.5">
                   <div>
                     <label htmlFor="vendor-filter" className="cmp-label">
                       Vendor
@@ -530,17 +529,17 @@ export default function QuoteDeskClient({ catalog }: Props) {
                 </div>
 
                 {vendorUnavailable && (
-                  <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800" role="status">
+                  <div className="rounded-md bg-amber-50 border border-amber-200 p-2.5 text-xs text-amber-800" role="status">
                     Vendor catalog unavailable. {vendorUnavailable}
                   </div>
                 )}
                 {vendorError && (
-                  <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700" role="alert">
+                  <div className="rounded-md bg-red-50 border border-red-200 p-2.5 text-xs text-red-700" role="alert">
                     {vendorError}
                   </div>
                 )}
                 {vendorSearchLoading && (
-                  <div className="flex items-center gap-2 text-sm text-cmp-gray">
+                  <div className="flex items-center gap-2 text-xs text-cmp-gray">
                     <LoadingSpinner />
                     Searching...
                   </div>
@@ -553,7 +552,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
                     id="vendor-search-results"
                     role="listbox"
                     aria-label="Vendor catalog search results"
-                    className="max-h-52 overflow-auto rounded-md border border-cmp-gray-light divide-y divide-cmp-gray-light/60"
+                    className="max-h-48 overflow-auto rounded-md border border-cmp-gray-light divide-y divide-cmp-gray-light/60"
                   >
                     {vendorStyles.map((style) => (
                       <button
@@ -561,7 +560,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
                         type="button"
                         role="option"
                         aria-selected={false}
-                        className="w-full px-3 py-2 text-left hover:bg-cmp-surface focus-visible:outline-cmp-cyan"
+                        className="w-full px-3 py-1.5 text-left hover:bg-cmp-surface focus-visible:outline-cmp-cyan"
                         onClick={() => {
                           clearVendorItemQuote();
                           setSelectedVendorStyle(style);
@@ -579,7 +578,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
                 )}
 
                 {selectedVendorStyle && (
-                  <div className="space-y-3 rounded-md border border-cmp-gray-light p-3">
+                  <div className="space-y-2.5 rounded-md border border-cmp-gray-light p-2.5">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-cmp-charcoal">
@@ -603,14 +602,14 @@ export default function QuoteDeskClient({ catalog }: Props) {
                     </div>
 
                     {vendorVariantsLoading && (
-                      <div className="flex items-center gap-2 text-sm text-cmp-gray">
+                      <div className="flex items-center gap-2 text-xs text-cmp-gray">
                         <LoadingSpinner />
                         Loading variants...
                       </div>
                     )}
 
                     {vendorVariants.length > 0 && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div>
                           <label htmlFor="vendor-color" className="cmp-label">
                             Color
@@ -657,7 +656,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
                     )}
 
                     {selectedVendorVariant && (
-                      <div className="text-xs text-cmp-gray space-y-1">
+                      <div className="text-xs text-cmp-gray space-y-0.5">
                         <p>
                           Inventory: {selectedVendorVariant.inventoryQty == null ? "Unavailable" : selectedVendorVariant.inventoryQty}
                         </p>
@@ -696,126 +695,110 @@ export default function QuoteDeskClient({ catalog }: Props) {
                 />
               </div>
             )}
-          </section>
 
-          {/* Quantity */}
-          <section className="cmp-card p-4 sm:p-5" aria-labelledby="quantity-heading">
-            <h2
-              id="quantity-heading"
-              className="text-sm font-bold uppercase tracking-wider text-cmp-charcoal mb-3 font-display"
-            >
-              Quantity
-            </h2>
-            <label htmlFor="quantity-input" className="cmp-label">
-              Order Quantity
-            </label>
-            <input
-              id="quantity-input"
-              type="number"
-              min="1"
-              step="1"
-              className="cmp-input"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-            />
-            {isDecimalQuantity(quantity) && (
-              <p className="mt-1 text-xs text-red-600" role="alert">
-                Quantity must be a whole number.
-              </p>
-            )}
-            {managerReviewRequired && (
-              <p className="mt-2 text-xs text-cmp-warning flex items-center gap-1" role="status">
-                <span className="inline-block w-4 h-4 rounded-full bg-amber-100 text-center leading-4 text-[10px] font-bold">!</span>
-                Quantities over 5,000 require manager review.
-              </p>
-            )}
-          </section>
-
-          {/* DTF Assumptions (read-only) */}
-          <section className="cmp-card p-4 sm:p-5" aria-labelledby="decoration-heading">
-            <h2
-              id="decoration-heading"
-              className="text-sm font-bold uppercase tracking-wider text-cmp-charcoal mb-3 font-display"
-            >
-              Decoration
-            </h2>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="cmp-label">Method</span>
-                <p className="cmp-value-readonly">DTF</p>
-              </div>
-              <div>
-                <span className="cmp-label">Mode</span>
-                <p className="cmp-value-readonly">Average</p>
-              </div>
-              <div>
-                <span className="cmp-label">Transfer Size</span>
-                <p className="cmp-value-readonly">10 &times; 10 in</p>
-              </div>
-              <div>
-                <span className="cmp-label">Included Locations</span>
-                <p className="cmp-value-readonly">1</p>
-              </div>
-              <div>
-                <span className="cmp-label">Price Lane</span>
-                <p className="cmp-value-readonly">Tier Matrix, T1</p>
+            {/* Quantity — inline within product card */}
+            <div className="mt-3 pt-3 border-t border-cmp-gray-light/30">
+              <div className="flex items-end gap-3">
+                <div className="flex-1 max-w-[160px]">
+                  <label htmlFor="quantity-input" className="cmp-label">
+                    Order Quantity
+                  </label>
+                  <input
+                    id="quantity-input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    className="cmp-input"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                  />
+                </div>
+                {isDecimalQuantity(quantity) && (
+                  <p className="text-xs text-red-600 pb-2" role="alert">
+                    Quantity must be a whole number.
+                  </p>
+                )}
+                {managerReviewRequired && (
+                  <p className="text-xs text-cmp-warning flex items-center gap-1 pb-2" role="status">
+                    <span className="inline-block w-4 h-4 rounded-full bg-amber-100 text-center leading-4 text-[10px] font-bold shrink-0">!</span>
+                    Quantities over 5,000 require manager review.
+                  </p>
+                )}
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-cmp-gray">
-              Fixed P0 configuration. Adjustable geometry and locations are P1.
-            </p>
           </section>
 
-          {/* Flat-Fee Service */}
-          <section className="cmp-card p-4 sm:p-5" aria-labelledby="flat-fee-heading">
+          {/* Decoration — compressed read-only context */}
+          <section className="cmp-card px-4 py-2.5" aria-labelledby="decoration-heading">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2
+                id="decoration-heading"
+                className="text-xs font-bold uppercase tracking-wider text-cmp-charcoal font-display shrink-0"
+              >
+                Decoration
+              </h2>
+              <span className="text-cmp-gray text-[11px]">
+                DTF · Average · 10&times;10 in · 1 loc · Tier Matrix T1
+              </span>
+              <span className="text-[10px] text-cmp-gray/60 ml-auto hidden sm:inline">
+                Fixed P0
+              </span>
+            </div>
+          </section>
+
+          {/* Add-On Service — compact */}
+          <section className="cmp-card p-4" aria-labelledby="flat-fee-heading">
             <h2
               id="flat-fee-heading"
-              className="text-sm font-bold uppercase tracking-wider text-cmp-charcoal mb-3 font-display"
+              className="text-xs font-bold uppercase tracking-wider text-cmp-charcoal mb-2 font-display"
             >
               Add-On Service
             </h2>
-            <label htmlFor="service-select" className="cmp-label">
-              Service
-            </label>
-            <select
-              id="service-select"
-              className="cmp-select"
-              value={selectedService}
-              onChange={(e) => setSelectedService(e.target.value)}
-            >
-              <option value="">None</option>
-              {FLAT_FEE_SERVICES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-
-            {selectedService && (
-              <div className="mt-3">
-                <label htmlFor="flat-fee-qty" className="cmp-label">
-                  Service Quantity (defaults to order qty)
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <label htmlFor="service-select" className="cmp-label">
+                  Service
                 </label>
-                <input
-                  id="flat-fee-qty"
-                  type="number"
-                  min="1"
-                  step="1"
-                  className="cmp-input"
-                  value={flatFeeQuantity}
-                  onChange={(e) => setFlatFeeQuantity(e.target.value)}
-                  placeholder={quantity}
-                />
+                <select
+                  id="service-select"
+                  className="cmp-select"
+                  value={selectedService}
+                  onChange={(e) => setSelectedService(e.target.value)}
+                >
+                  <option value="">None</option>
+                  {FLAT_FEE_SERVICES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
+              {selectedService && (
+                <div className="w-28">
+                  <label htmlFor="flat-fee-qty" className="cmp-label">
+                    Service Qty
+                  </label>
+                  <input
+                    id="flat-fee-qty"
+                    type="number"
+                    min="1"
+                    step="1"
+                    className="cmp-input"
+                    value={flatFeeQuantity}
+                    onChange={(e) => setFlatFeeQuantity(e.target.value)}
+                    placeholder={quantity}
+                  />
+                </div>
+              )}
+            </div>
 
             {/* Manager edits for flat-fee */}
             {selectedService && role === "manager" && (
-              <div className="mt-4 pt-3 border-t border-cmp-gray-light/50 space-y-3">
-                <p className="text-[11px] text-cmp-warning font-medium uppercase tracking-wider">
+              <div className="mt-3 pt-2.5 border-t border-cmp-gray-light/50 space-y-2.5">
+                <p className="text-[10px] text-cmp-warning font-medium uppercase tracking-wider">
                   Manager Controls
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-2.5">
                   <div>
                     <label htmlFor="extra-op-min" className="cmp-label">
                       Extra Op Min/Shirt
@@ -832,7 +815,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
                   </div>
                   <div>
                     <label htmlFor="extra-des-min" className="cmp-label">
-                      Extra Design Min/Order
+                      Extra Des Min/Order
                     </label>
                     <input
                       id="extra-des-min"
@@ -844,21 +827,21 @@ export default function QuoteDeskClient({ catalog }: Props) {
                       onChange={(e) => setExtraDesMinutes(e.target.value)}
                     />
                   </div>
-                </div>
-                <div>
-                  <label htmlFor="manual-override" className="cmp-label">
-                    Manual Override ($)
-                  </label>
-                  <input
-                    id="manual-override"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="cmp-input"
-                    value={manualOverride}
-                    onChange={(e) => setManualOverride(e.target.value)}
-                    placeholder="Blank = use engine/floor"
-                  />
+                  <div>
+                    <label htmlFor="manual-override" className="cmp-label">
+                      Override ($)
+                    </label>
+                    <input
+                      id="manual-override"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="cmp-input"
+                      value={manualOverride}
+                      onChange={(e) => setManualOverride(e.target.value)}
+                      placeholder="Auto"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -866,19 +849,19 @@ export default function QuoteDeskClient({ catalog }: Props) {
         </div>
 
         {/* RIGHT: Summary */}
-        <aside className="lg:w-96 lg:sticky lg:top-4 lg:self-start space-y-4">
+        <aside className="lg:w-[340px] lg:sticky lg:top-3 lg:self-start space-y-3">
           {/* Item Price Summary */}
-          <div className="cmp-card p-4 sm:p-5" aria-labelledby="item-summary-heading">
+          <div className="cmp-card p-4" aria-labelledby="item-summary-heading">
             <h2
               id="item-summary-heading"
-              className="text-sm font-bold uppercase tracking-wider text-cmp-charcoal mb-4 font-display"
+              className="text-xs font-bold uppercase tracking-wider text-cmp-charcoal mb-3 font-display"
             >
               Item Price
             </h2>
 
             {itemError && (
               <div
-                className="mb-3 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700"
+                className="mb-3 rounded-md bg-red-50 border border-red-200 p-2.5 text-xs text-red-700"
                 role="alert"
               >
                 {itemError}
@@ -887,7 +870,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
 
             {managerReviewRequired && (
               <div
-                className="mb-3 rounded-md bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800 text-center"
+                className="mb-3 rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800 text-center"
                 role="status"
                 data-testid="manager-review-banner"
               >
@@ -897,7 +880,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
             )}
 
             {itemLoading && !itemQuote && (
-              <div className="flex items-center gap-2 text-sm text-cmp-gray py-4">
+              <div className="flex items-center gap-2 text-xs text-cmp-gray py-3">
                 <LoadingSpinner />
                 Calculating...
               </div>
@@ -906,20 +889,20 @@ export default function QuoteDeskClient({ catalog }: Props) {
             {itemQuote && (
               <div className={itemLoading ? "opacity-60 transition-opacity" : ""}>
                 {/* Hero price */}
-                <div className="text-center mb-4">
-                  <p className="text-xs text-cmp-gray uppercase tracking-wider mb-1">
+                <div className="text-center mb-3">
+                  <p className="text-[10px] text-cmp-gray uppercase tracking-wider mb-0.5">
                     Per-Item Price
                   </p>
                   <p className="cmp-price-hero" aria-label={`Per-item price: ${formatCurrency(itemQuote.salesPrice)}`}>
                     {formatCurrency(itemQuote.salesPrice)}
                   </p>
-                  <p className="text-xs text-cmp-gray mt-1">
+                  <p className="text-[10px] text-cmp-gray mt-0.5">
                     Tier: {itemQuote.tierLabel}
                   </p>
                 </div>
 
                 {/* Breakdown */}
-                <div className="space-y-1.5 text-sm border-t border-cmp-gray-light/50 pt-3">
+                <div className="space-y-1 text-sm border-t border-cmp-gray-light/50 pt-2.5">
                   <Row label="Product Sell" value={formatCurrency(itemQuote.productSell)} />
                   <Row label="Decoration Sell" value={formatCurrency(itemQuote.decorationSell)} />
                   <Row
@@ -931,8 +914,8 @@ export default function QuoteDeskClient({ catalog }: Props) {
 
                 {/* Manager details */}
                 {isManagerItem(itemQuote) && (
-                  <div className="mt-3 pt-3 border-t border-cmp-gray-light/50 space-y-1.5 text-sm">
-                    <p className="text-[11px] text-cmp-warning font-medium uppercase tracking-wider mb-2">
+                  <div className="mt-2.5 pt-2.5 border-t border-cmp-gray-light/50 space-y-1 text-sm">
+                    <p className="text-[10px] text-cmp-warning font-medium uppercase tracking-wider mb-1.5">
                       Internal Details
                     </p>
                     <Row
@@ -991,7 +974,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
                 )}
 
                 {/* Order totals */}
-                <div className="mt-3 pt-3 border-t border-cmp-gray-light/50 space-y-1.5 text-sm">
+                <div className="mt-2.5 pt-2.5 border-t border-cmp-gray-light/50 space-y-1 text-sm">
                   <Row
                     label="Item Order Total"
                     value={formatCurrency(itemQuote.salesOrderTotal)}
@@ -1014,7 +997,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
             )}
 
             {!itemQuote && !itemLoading && !itemError && (
-              <p className="text-sm text-cmp-gray py-4 text-center">
+              <p className="text-sm text-cmp-gray py-3 text-center">
                 Select a product and quantity to see pricing.
               </p>
             )}
@@ -1022,17 +1005,17 @@ export default function QuoteDeskClient({ catalog }: Props) {
 
           {/* Flat-Fee Summary */}
           {selectedService && (
-            <div className="cmp-card p-4 sm:p-5" aria-labelledby="flat-fee-summary-heading">
+            <div className="cmp-card p-4" aria-labelledby="flat-fee-summary-heading">
               <h2
                 id="flat-fee-summary-heading"
-                className="text-sm font-bold uppercase tracking-wider text-cmp-charcoal mb-4 font-display"
+                className="text-xs font-bold uppercase tracking-wider text-cmp-charcoal mb-3 font-display"
               >
                 Add-On: {selectedService}
               </h2>
 
               {flatFeeError && (
                 <div
-                  className="mb-3 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700"
+                  className="mb-2.5 rounded-md bg-red-50 border border-red-200 p-2.5 text-xs text-red-700"
                   role="alert"
                 >
                   {flatFeeError}
@@ -1040,7 +1023,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
               )}
 
               {flatFeeLoading && !flatFeeQuote && (
-                <div className="flex items-center gap-2 text-sm text-cmp-gray py-4">
+                <div className="flex items-center gap-2 text-xs text-cmp-gray py-3">
                   <LoadingSpinner />
                   Calculating...
                 </div>
@@ -1048,19 +1031,19 @@ export default function QuoteDeskClient({ catalog }: Props) {
 
               {flatFeeQuote && (
                 <div className={flatFeeLoading ? "opacity-60 transition-opacity" : ""}>
-                  <div className="text-center mb-4">
-                    <p className="text-xs text-cmp-gray uppercase tracking-wider mb-1">
+                  <div className="text-center mb-3">
+                    <p className="text-[10px] text-cmp-gray uppercase tracking-wider mb-0.5">
                       Per-Shirt Price
                     </p>
                     <p className="cmp-price-hero" aria-label={`Add-on per-shirt price: ${formatCurrency(flatFeeQuote.effectivePrice)}`}>
                       {formatCurrency(flatFeeQuote.effectivePrice)}
                     </p>
-                    <p className="text-xs text-cmp-gray mt-1">
+                    <p className="text-[10px] text-cmp-gray mt-0.5">
                       {flatFeeQuote.status}
                     </p>
                   </div>
 
-                  <div className="space-y-1.5 text-sm border-t border-cmp-gray-light/50 pt-3">
+                  <div className="space-y-1 text-sm border-t border-cmp-gray-light/50 pt-2.5">
                     <Row
                       label="Billable Quantity"
                       value={String(flatFeeQuote.billableQuantity)}
@@ -1074,8 +1057,8 @@ export default function QuoteDeskClient({ catalog }: Props) {
 
                   {/* Manager flat-fee details */}
                   {isManagerFlatFee(flatFeeQuote) && (
-                    <div className="mt-3 pt-3 border-t border-cmp-gray-light/50 space-y-1.5 text-sm">
-                      <p className="text-[11px] text-cmp-warning font-medium uppercase tracking-wider mb-2">
+                    <div className="mt-2.5 pt-2.5 border-t border-cmp-gray-light/50 space-y-1 text-sm">
+                      <p className="text-[10px] text-cmp-warning font-medium uppercase tracking-wider mb-1.5">
                         Internal Details
                       </p>
                       <Row label="Engine COGS" value={formatCurrency(flatFeeQuote.engineCogs)} />
@@ -1103,18 +1086,18 @@ export default function QuoteDeskClient({ catalog }: Props) {
 
           {/* Combined Order Total */}
           {itemQuote && (
-            <div className="cmp-card p-4 sm:p-5 bg-cmp-charcoal text-white">
-              <p className="text-xs uppercase tracking-wider text-cmp-gray-light mb-1">
+            <div className="cmp-card p-4 bg-cmp-charcoal text-white">
+              <p className="text-[10px] uppercase tracking-wider text-cmp-gray-light mb-0.5">
                 Order Total
               </p>
               <p
-                className="text-3xl font-bold tracking-tight font-display"
+                className="text-2xl font-bold tracking-tight font-display"
                 aria-label={`Order total: ${formatCurrency(orderTotal)}`}
               >
                 {formatCurrency(orderTotal)}
               </p>
               {flatFeeQuote && (
-                <p className="text-xs text-cmp-gray-light mt-1">
+                <p className="text-[10px] text-cmp-gray-light mt-0.5">
                   Items + Add-On
                 </p>
               )}
@@ -1123,7 +1106,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
 
           {/* Mobile sticky total */}
           {itemQuote && (
-            <div className="lg:hidden fixed bottom-0 inset-x-0 bg-cmp-charcoal px-4 py-3 flex items-center justify-between z-10 border-t border-cmp-gray/30">
+            <div className="lg:hidden fixed bottom-0 inset-x-0 bg-cmp-charcoal px-4 py-2.5 flex items-center justify-between z-10 border-t border-cmp-gray/30">
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-cmp-gray-light">
                   Per Item
@@ -1146,7 +1129,7 @@ export default function QuoteDeskClient({ catalog }: Props) {
       </div>
 
       {/* Spacer for mobile sticky bar */}
-      {itemQuote && <div className="lg:hidden h-16" />}
+      {itemQuote && <div className="lg:hidden h-14" />}
     </div>
   );
 }

@@ -13,7 +13,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000/concepts`.
+Open `http://localhost:3000/` for the primary Staff Quote Desk. The three evaluation interfaces remain available at `http://localhost:3000/concepts`.
 
 Production-mode local check:
 
@@ -24,11 +24,12 @@ npm start
 
 ## Interfaces
 
-- `/concepts/quote-desk` — fastest repeat staff quoting workflow
+- `/` — primary Staff Quote Desk with vendor catalog first
+- `/concepts/quote-desk` — Quote Desk evaluation route with local Manager toggle
 - `/concepts/guided-builder` — progressive Product → Quantity → Decoration → Review flow
 - `/concepts/command-center` — dense manager-oriented dashboard and audit view
 
-All three interfaces call the same server quote endpoints and shared pricing engine.
+All interfaces call the same server quote endpoints and shared pricing engine.
 
 ## Verified pricing scope
 
