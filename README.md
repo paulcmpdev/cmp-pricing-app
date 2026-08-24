@@ -25,6 +25,7 @@ npm start
 ## Interfaces
 
 - `/` — primary Staff Quote Desk with vendor catalog first
+- `/admin` — private read-only Catalog Operations preview
 - `/concepts/quote-desk` — Quote Desk evaluation route with local Manager toggle
 - `/concepts/guided-builder` — progressive Product → Quantity → Decoration → Review flow
 - `/concepts/command-center` — dense manager-oriented dashboard and audit view

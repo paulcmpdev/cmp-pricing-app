@@ -4,6 +4,11 @@ import { existsSync } from "node:fs";
 import { Pool } from "pg";
 import { openSqliteDatabase, type DatabaseSyncLike } from "./sqlite";
 import { createPostgresVendorCatalogRepository } from "./postgres-repository";
+import {
+  queryAdminCatalogOverview,
+  unavailableAdminCatalogOverview,
+  type AdminCatalogOverview,
+} from "./admin-overview";
 
 export type VendorCatalogVendor = "all" | "ss" | "sanmar";
 
@@ -272,6 +277,26 @@ export async function resolveCatalogVariantCost(
     costBasis: row.cost_basis,
     sourceSyncAt: row.source_sync_at,
   };
+}
+
+export async function getAdminCatalogOverview(): Promise<AdminCatalogOverview> {
+  if (!configuredPostgresUrl()) {
+    return unavailableAdminCatalogOverview(
+      configuredSqlitePath() ? "sqlite" : "unconfigured"
+    );
+  }
+
+  try {
+    const pool = getPostgresPool();
+    return await queryAdminCatalogOverview({
+      async query(text, values) {
+        const result = await pool.query(text, values);
+        return { rows: result.rows };
+      },
+    });
+  } catch {
+    return unavailableAdminCatalogOverview("postgres");
+  }
 }
 
 export async function closeVendorCatalogPoolForTests(): Promise<void> {
