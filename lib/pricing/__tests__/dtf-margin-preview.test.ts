@@ -12,6 +12,7 @@ describe("DTF margin preview calculation engine", () => {
   it("reproduces all 23 tiers x 4 lanes from the captured contract", () => {
     const preview = calculateDtfMarginPreview({ edits: [] });
 
+    expect(preview.schemaVersion).toBe(contract.schemaVersion);
     expect(preview.tiers).toHaveLength(23);
 
     for (const tier of contract.dtfEngine.tierPriceMatrix) {
@@ -28,6 +29,10 @@ describe("DTF margin preview calculation engine", () => {
     const preview = calculateDtfMarginPreview({ edits: [] });
     const row = preview.tiers.find((tier) => tier.tier === "72-143");
 
+    expect(row).toMatchObject({
+      baseDtfCogs: expect.any(String),
+      laborRecovery: expect.any(String),
+    });
     expect(row?.lanes.T1.draft.final).toBe("6.55");
     expect(row?.lanes.T2.draft.final).toBe("6.00");
     expect(row?.lanes.T3.draft.final).toBe("5.55");
@@ -106,5 +111,38 @@ describe("DTF margin preview calculation engine", () => {
     expect(preview.current.commissionReserve).toBe("1.25");
     expect(preview.draft.productSell).toBe("9.60");
     expect(preview.draft.commissionReserve).toBe(preview.current.commissionReserve);
+  });
+
+  it("adds modeled quote contribution using active tier decoration COGS", () => {
+    const preview = calculateQuoteImpactPreview({
+      productCost: 4.8,
+      quantity: 174,
+      lane: "T1",
+      edits: [{ tier: "144-249", lane: "T1", marginPercent: 55 }],
+    });
+
+    expect(preview.contributionBasis).toContain("active tier COGS");
+    expect(preview.current).toMatchObject({
+      modeledDecorationCogs: "3.11",
+      totalProductionCogs: "7.91",
+      grossProfitBeforeCommission: "7.69",
+      netContributionAfterCommission: "6.44",
+      contributionMarginAfterCommission: "0.413127351",
+      netContributionOrderTotal: "1121.39",
+    });
+    expect(preview.draft).toMatchObject({
+      decorationSell: "6.60",
+      modeledDecorationCogs: preview.current.modeledDecorationCogs,
+      grossProfitBeforeCommission: "8.29",
+      netContributionAfterCommission: "7.00",
+      contributionMarginAfterCommission: "0.4319004121",
+      netContributionOrderTotal: "1217.44",
+    });
+    expect(preview.delta).toMatchObject({
+      grossProfitBeforeCommission: "0.60",
+      netContributionAfterCommission: "0.56",
+      contributionMarginAfterCommission: "0.0187730611",
+      netContributionOrderTotal: "96.05",
+    });
   });
 });

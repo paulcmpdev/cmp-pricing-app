@@ -1,3 +1,4 @@
+import "server-only";
 import { z } from "zod";
 import contract from "@/lib/fixtures/pricing-contract.json";
 import { d, roundUpToIncrement, type DecimalLike } from "./money";
@@ -136,11 +137,22 @@ function calculateTrace(tier: (typeof contract.dtfEngine.tierPriceMatrix)[number
   };
 }
 
+function calculateTierCogs(tier: (typeof contract.dtfEngine.tierPriceMatrix)[number]) {
+  const laborRecovery = d(contract.dtfEngine.sharedProjectLaborPerOrder).div(tier.minQty);
+  const baseDtfCogs = d(tier.activeTotalDtfCogs).minus(laborRecovery);
+
+  return {
+    baseDtfCogs: decimalString(baseDtfCogs),
+    laborRecovery: decimalString(laborRecovery),
+  };
+}
+
 export function calculateDtfMarginPreview(input: DraftMarginInput) {
   const parsed = DraftMarginInputSchema.parse(input);
   const edits = new Map(parsed.edits.map((edit) => [`${edit.tier}:${edit.lane}`, edit]));
 
   return {
+    schemaVersion: contract.schemaVersion,
     source: "lib/fixtures/pricing-contract.json",
     pricingPolicy: {
       productCostMultiplier: contract.pricingPolicy.productCostMultiplier,
@@ -156,6 +168,7 @@ export function calculateDtfMarginPreview(input: DraftMarginInput) {
       spacingIn: contract.dtfEngine.spacingIn,
     },
     tiers: contract.dtfEngine.tierPriceMatrix.map((tier) => {
+      const tierCogs = calculateTierCogs(tier);
       const lanes = Object.fromEntries(
         DTF_MARGIN_LANES.map((lane) => {
           const edit = edits.get(`${tier.tier}:${lane}`);
@@ -183,6 +196,7 @@ export function calculateDtfMarginPreview(input: DraftMarginInput) {
         minQty: tier.minQty,
         maxQty: tier.maxQty,
         activeTotalDtfCogs: decimalString(tier.activeTotalDtfCogs),
+        ...tierCogs,
         costingQtyWorstCase: tier.costingQtyWorstCase,
         pricingBasis: tier.pricingBasis,
         lanes,
@@ -191,12 +205,24 @@ export function calculateDtfMarginPreview(input: DraftMarginInput) {
   };
 }
 
-function quoteTotals(productCost: number, quantity: number, decorationSell: string) {
+function quoteTotals(
+  productCost: number,
+  quantity: number,
+  decorationSell: string,
+  modeledDecorationCogs: DecimalLike
+) {
   const productSell = d(productCost).times(contract.pricingPolicy.productCostMultiplier);
   const decoration = d(decorationSell);
   const unitPrice = productSell.plus(decoration);
   const orderTotal = unitPrice.times(quantity);
   const commissionReserve = unitPrice.times(contract.pricingPolicy.commissionReserveRate);
+  const totalProductionCogs = d(productCost).plus(modeledDecorationCogs);
+  const grossProfitBeforeCommission = unitPrice.minus(totalProductionCogs);
+  const netContributionAfterCommission = grossProfitBeforeCommission.minus(commissionReserve);
+  const contributionMarginAfterCommission = unitPrice.eq(0)
+    ? d(0)
+    : netContributionAfterCommission.div(unitPrice);
+  const netContributionOrderTotal = netContributionAfterCommission.times(quantity);
 
   return {
     productSell: currency(productSell),
@@ -204,6 +230,12 @@ function quoteTotals(productCost: number, quantity: number, decorationSell: stri
     unitPrice: currency(unitPrice),
     orderTotal: currency(orderTotal),
     commissionReserve: currency(commissionReserve),
+    modeledDecorationCogs: currency(modeledDecorationCogs),
+    totalProductionCogs: currency(totalProductionCogs),
+    grossProfitBeforeCommission: currency(grossProfitBeforeCommission),
+    netContributionAfterCommission: currency(netContributionAfterCommission),
+    contributionMarginAfterCommission: decimalString(contributionMarginAfterCommission),
+    netContributionOrderTotal: currency(netContributionOrderTotal),
   };
 }
 
@@ -219,11 +251,36 @@ export function calculateQuoteImpactPreview(
     throw new Error(`No preview tier found for ${activeTier.tier}`);
   }
 
-  const current = quoteTotals(quote.productCost, quote.quantity, currency(activeTier.prices[quote.lane]));
-  const draft = quoteTotals(quote.productCost, quote.quantity, draftTier.lanes[quote.lane].draft.final);
+  // Internal contribution preview uses the active tier's modeled decoration COGS.
+  // This is intentionally separate from the production item calculator.
+  const modeledDecorationCogs = d(activeTier.activeTotalDtfCogs);
+  const current = quoteTotals(
+    quote.productCost,
+    quote.quantity,
+    currency(activeTier.prices[quote.lane]),
+    modeledDecorationCogs
+  );
+  const draft = quoteTotals(
+    quote.productCost,
+    quote.quantity,
+    draftTier.lanes[quote.lane].draft.final,
+    modeledDecorationCogs
+  );
   const unitDelta = d(draft.unitPrice).minus(current.unitPrice);
   const orderDelta = d(draft.orderTotal).minus(current.orderTotal);
   const commissionDelta = d(draft.commissionReserve).minus(current.commissionReserve);
+  const grossProfitDelta = d(draft.grossProfitBeforeCommission).minus(
+    current.grossProfitBeforeCommission
+  );
+  const netContributionDelta = d(draft.netContributionAfterCommission).minus(
+    current.netContributionAfterCommission
+  );
+  const contributionMarginDelta = d(draft.contributionMarginAfterCommission).minus(
+    current.contributionMarginAfterCommission
+  );
+  const orderNetContributionDelta = d(draft.netContributionOrderTotal).minus(
+    current.netContributionOrderTotal
+  );
   const percentDelta = d(current.orderTotal).eq(0) ? d(0) : orderDelta.div(current.orderTotal);
 
   return {
@@ -231,6 +288,8 @@ export function calculateQuoteImpactPreview(
     lane: quote.lane,
     productCost: currency(quote.productCost),
     quantity: quote.quantity,
+    contributionBasis:
+      "Internal contribution preview uses active tier COGS as modeled decoration COGS.",
     current,
     draft,
     delta: {
@@ -240,6 +299,10 @@ export function calculateQuoteImpactPreview(
       orderTotal: currency(orderDelta),
       orderPercent: decimalString(percentDelta),
       commissionReserve: currency(commissionDelta),
+      grossProfitBeforeCommission: currency(grossProfitDelta),
+      netContributionAfterCommission: currency(netContributionDelta),
+      contributionMarginAfterCommission: decimalString(contributionMarginDelta),
+      netContributionOrderTotal: currency(orderNetContributionDelta),
     },
   };
 }

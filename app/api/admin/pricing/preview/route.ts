@@ -28,6 +28,78 @@ function validationResponse(error: z.ZodError) {
   );
 }
 
+function bodyTooLargeResponse() {
+  return NextResponse.json(
+    { error: { _form: ["Request body is too large."] } },
+    { status: 413 }
+  );
+}
+
+function declaredContentLength(headers: Headers): number | null {
+  const value = headers.get("content-length");
+  if (value == null || value.trim() === "") {
+    return null;
+  }
+
+  if (!/^\d+$/.test(value.trim())) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+async function readBodyWithCap(request: NextRequest, maxBytes: number) {
+  const declaredLength = declaredContentLength(request.headers);
+  if (declaredLength != null && declaredLength > maxBytes) {
+    return { tooLarge: true as const };
+  }
+
+  if (!request.body) {
+    return { tooLarge: false as const, text: "" };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        return { tooLarge: true as const };
+      }
+
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return {
+    tooLarge: false as const,
+    text: new TextDecoder("utf-8", { fatal: false }).decode(
+      chunks.length === 1 ? chunks[0] : concatChunks(chunks, totalBytes)
+    ),
+  };
+}
+
+function concatChunks(chunks: Uint8Array[], totalBytes: number) {
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return body;
+}
+
 export async function GET() {
   if (!isPricingPreviewEnabled()) {
     return disabledResponse();
@@ -41,17 +113,14 @@ export async function POST(request: NextRequest) {
     return disabledResponse();
   }
 
-  const text = await request.text();
-  if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) {
-    return NextResponse.json(
-      { error: { _form: ["Request body is too large."] } },
-      { status: 413 }
-    );
+  const bodyRead = await readBodyWithCap(request, MAX_BODY_BYTES);
+  if (bodyRead.tooLarge) {
+    return bodyTooLargeResponse();
   }
 
   let body: unknown;
   try {
-    body = text.length > 0 ? JSON.parse(text) : {};
+    body = bodyRead.text.length > 0 ? JSON.parse(bodyRead.text) : {};
   } catch {
     return NextResponse.json(
       { error: { _form: ["Malformed JSON in request body."] } },

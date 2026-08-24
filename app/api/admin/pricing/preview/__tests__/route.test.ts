@@ -13,6 +13,25 @@ function request(url: string, init?: RequestInit) {
   return new NextRequest(new Request(url, init));
 }
 
+function streamingRequest(url: string, chunks: string[]) {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
+
+  return request(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+    duplex: "half",
+  } as RequestInit & { duplex: "half" });
+}
+
 afterEach(() => {
   env.NODE_ENV = original.NODE_ENV;
   env.VERCEL_ENV = original.VERCEL_ENV;
@@ -46,8 +65,10 @@ describe("admin pricing preview API", () => {
     const getResponse = await GET();
     expect(getResponse.status).toBe(200);
     const baseline = await getResponse.json();
+    expect(baseline.schemaVersion).toBe("1.0.0");
     expect(baseline.tiers).toHaveLength(23);
     expect(JSON.stringify(baseline)).toMatch(/activeTotalDtfCogs/);
+    expect(JSON.stringify(baseline)).toMatch(/baseDtfCogs/);
 
     const postResponse = await POST(
       request("http://localhost/api/admin/pricing/preview", {
@@ -63,9 +84,11 @@ describe("admin pricing preview API", () => {
     const draft = await postResponse.json();
     expect(draft.preview.tiers).toHaveLength(23);
     expect(draft.quote.current.orderTotal).toBe("2714.40");
+    expect(draft.quote.current.grossProfitBeforeCommission).toBe("7.69");
+    expect(draft.quote.current.netContributionAfterCommission).toBe("6.44");
   });
 
-  it("validates payloads and caps body size", async () => {
+  it("validates payloads and rejects declared oversized bodies before reading", async () => {
     env.NODE_ENV = "test";
     delete env.VERCEL_ENV;
     env.CMP_ENABLE_PRICING_PREVIEW = "true";
@@ -84,10 +107,45 @@ describe("admin pricing preview API", () => {
     const oversizedResponse = await POST(
       request("http://localhost/api/admin/pricing/preview", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ edits: [], padding: "x".repeat(20_000) }),
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": "16385",
+        },
+        body: JSON.stringify({ edits: [] }),
       })
     );
     expect(oversizedResponse.status).toBe(413);
+  });
+
+  it("caps streamed request bodies without trusting absent content length", async () => {
+    env.NODE_ENV = "test";
+    delete env.VERCEL_ENV;
+    env.CMP_ENABLE_PRICING_PREVIEW = "true";
+
+    const oversizedResponse = await POST(
+      streamingRequest("http://localhost/api/admin/pricing/preview", [
+        '{"edits":[],"padding":"',
+        "x".repeat(16_385),
+        "\"}",
+      ])
+    );
+    expect(oversizedResponse.status).toBe(413);
+  });
+
+  it("treats empty bodies safely", async () => {
+    env.NODE_ENV = "test";
+    delete env.VERCEL_ENV;
+    env.CMP_ENABLE_PRICING_PREVIEW = "true";
+
+    const response = await POST(
+      request("http://localhost/api/admin/pricing/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.preview.tiers).toHaveLength(23);
   });
 });
