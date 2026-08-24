@@ -44,7 +44,7 @@ test.describe("Admin Pricing Preview", () => {
       await expect(page.getByText("pricing-contract.json")).toBeVisible();
       await expect(page.getByText("2x")).toBeVisible();
       await expect(page.getByText("8.0%")).toBeVisible();
-      await expect(page.getByText("$0.05")).toBeVisible();
+      await expect(page.getByText("$0.05").first()).toBeVisible();
       await expect(page.getByText("Average")).toBeVisible();
       await expect(page.getByText("Tier-Based")).toBeVisible();
     });

@@ -39,6 +39,8 @@ type TierData = {
   minQty: number;
   maxQty: number;
   activeTotalDtfCogs: string;
+  baseDtfCogs: string;
+  laborRecovery: string;
   lanes: Record<Lane, LaneData>;
 };
 
@@ -58,10 +60,25 @@ type DtfContext = {
 };
 
 type PreviewResponse = {
+  schemaVersion: string;
   source: string;
   pricingPolicy: PricingPolicy;
   dtfContext: DtfContext;
   tiers: TierData[];
+};
+
+type QuoteTotals = {
+  productSell: string;
+  decorationSell: string;
+  unitPrice: string;
+  orderTotal: string;
+  commissionReserve: string;
+  modeledDecorationCogs: string;
+  totalProductionCogs: string;
+  grossProfitBeforeCommission: string;
+  netContributionAfterCommission: string;
+  contributionMarginAfterCommission: string;
+  netContributionOrderTotal: string;
 };
 
 type QuoteResponse = {
@@ -69,6 +86,7 @@ type QuoteResponse = {
   lane: string;
   productCost: string;
   quantity: number;
+  contributionBasis: string;
   current: QuoteTotals;
   draft: QuoteTotals;
   delta: {
@@ -78,18 +96,54 @@ type QuoteResponse = {
     orderTotal: string;
     orderPercent: string;
     commissionReserve: string;
+    grossProfitBeforeCommission: string;
+    netContributionAfterCommission: string;
+    contributionMarginAfterCommission: string;
+    netContributionOrderTotal: string;
   };
 };
 
-type QuoteTotals = {
-  productSell: string;
-  decorationSell: string;
-  unitPrice: string;
-  orderTotal: string;
-  commissionReserve: string;
+type Edit = { tier: string; lane: Lane; marginPercent: number };
+
+type MarginErrors = Map<string, string>;
+
+type QuoteFieldErrors = {
+  productCost?: string;
+  quantity?: string;
 };
 
-type Edit = { tier: string; lane: Lane; marginPercent: number };
+function validateMargin(value: number): string | null {
+  if (!Number.isFinite(value)) return "Enter a number";
+  if (value < 0) return "Min 0%";
+  if (value >= 100) return "Max 99%";
+  return null;
+}
+
+function validateQuoteInputs(inputs: {
+  productCost: string;
+  quantity: string;
+}): QuoteFieldErrors {
+  const errors: QuoteFieldErrors = {};
+  const cost = parseFloat(inputs.productCost);
+  const qty = parseFloat(inputs.quantity);
+
+  if (inputs.productCost !== "" && (!Number.isFinite(cost) || cost < 0)) {
+    errors.productCost = "Must be >= 0";
+  }
+  if (inputs.quantity !== "") {
+    if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty < 1 || qty > 5000) {
+      errors.quantity = "Integer 1-5,000";
+    }
+  }
+  return errors;
+}
+
+function hasValidMargins(edits: Map<string, Edit>): boolean {
+  for (const edit of Array.from(edits.values())) {
+    if (validateMargin(edit.marginPercent) !== null) return false;
+  }
+  return true;
+}
 
 export default function PricingPreview() {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -104,7 +158,11 @@ export default function PricingPreview() {
     quantity: "174",
     lane: "T1" as Lane,
   });
+  const [marginErrors, setMarginErrors] = useState<MarginErrors>(new Map());
+  const [quoteErrors, setQuoteErrors] = useState<QuoteFieldErrors>({});
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const requestTokenRef = useRef(0);
   const dirtyRef = useRef(false);
 
   const isDirty = edits.size > 0;
@@ -118,28 +176,37 @@ export default function PricingPreview() {
     function handler(e: BeforeUnloadEvent) {
       if (dirtyRef.current) {
         e.preventDefault();
+        e.returnValue = "";
       }
     }
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
-  // Initial load
+  // Cleanup on unmount
   useEffect(() => {
-    fetchPreview([], quoteInputs);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
   }, []);
 
   const fetchPreview = useCallback(
     async (
       editList: Edit[],
-      quote: { productCost: string; quantity: string; lane: Lane }
+      quote: { productCost: string; quantity: string; lane: Lane },
+      qErrors: QuoteFieldErrors
     ) => {
+      // Abort any previous in-flight request
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const token = ++requestTokenRef.current;
       setRecalculating(true);
       setError(null);
+
       try {
-        const productCost = parseFloat(quote.productCost);
-        const quantity = parseInt(quote.quantity, 10);
         const body: Record<string, unknown> = {
           edits: editList.map((e) => ({
             tier: e.tier,
@@ -147,7 +214,17 @@ export default function PricingPreview() {
             marginPercent: e.marginPercent,
           })),
         };
-        if (Number.isFinite(productCost) && Number.isFinite(quantity) && quantity >= 1) {
+
+        // Only include quote if inputs are valid
+        const productCost = parseFloat(quote.productCost);
+        const quantity = parseInt(quote.quantity, 10);
+        const quoteIsValid =
+          !qErrors.productCost &&
+          !qErrors.quantity &&
+          Number.isFinite(productCost) &&
+          Number.isFinite(quantity) &&
+          quantity >= 1;
+        if (quoteIsValid) {
           body.quote = { productCost, quantity, lane: quote.lane };
         }
 
@@ -155,34 +232,75 @@ export default function PricingPreview() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
+
+        // Stale response guard: only apply if this is still the latest request
+        if (token !== requestTokenRef.current) return;
+
         if (res.status === 404) {
           setError("Pricing preview is disabled in this environment.");
           return;
         }
         if (!res.ok) {
           const data = await res.json().catch(() => null);
-          setError(data?.error?._form?.[0] || `Server error (${res.status})`);
+          // Parse field-level errors from API
+          if (data?.error && typeof data.error === "object" && !Array.isArray(data.error)) {
+            const fieldErrors = data.error as Record<string, string[]>;
+            if (fieldErrors.productCost || fieldErrors.quantity) {
+              setQuoteErrors({
+                productCost: fieldErrors.productCost?.[0],
+                quantity: fieldErrors.quantity?.[0],
+              });
+              setQuoteResult(null);
+            }
+            if (fieldErrors._form) {
+              setError(fieldErrors._form[0]);
+            } else if (!fieldErrors.productCost && !fieldErrors.quantity) {
+              setError(`Validation error (${res.status})`);
+            }
+          } else {
+            setError(data?.error?._form?.[0] || `Server error (${res.status})`);
+          }
           return;
         }
         const data = await res.json();
+        if (token !== requestTokenRef.current) return;
         setPreview(data.preview);
-        setQuoteResult(data.quote ?? null);
-      } catch {
+        setQuoteResult(quoteIsValid ? (data.quote ?? null) : null);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (token !== requestTokenRef.current) return;
         setError("Failed to connect to pricing preview API.");
       } finally {
-        setLoading(false);
-        setRecalculating(false);
+        if (token === requestTokenRef.current) {
+          setLoading(false);
+          setRecalculating(false);
+        }
       }
     },
     []
   );
 
+  // Initial load
+  useEffect(() => {
+    fetchPreview([], quoteInputs, {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const debouncedRecalc = useCallback(
-    (newEdits: Map<string, Edit>, quote: typeof quoteInputs) => {
+    (
+      newEdits: Map<string, Edit>,
+      quote: typeof quoteInputs,
+      qErrors: QuoteFieldErrors
+    ) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+
+      // Skip POST if any margin edit is invalid
+      if (!hasValidMargins(newEdits)) return;
+
       debounceRef.current = setTimeout(() => {
-        fetchPreview(Array.from(newEdits.values()), quote);
+        fetchPreview(Array.from(newEdits.values()), quote, qErrors);
       }, DEBOUNCE_MS);
     },
     [fetchPreview]
@@ -192,43 +310,96 @@ export default function PricingPreview() {
     (tier: string, lane: Lane, value: string) => {
       const num = parseFloat(value);
       const newEdits = new Map(edits);
+      const newErrors = new Map(marginErrors);
+      const key = `${tier}:${lane}`;
 
       if (value === "" || isNaN(num)) {
-        newEdits.delete(`${tier}:${lane}`);
+        newEdits.delete(key);
+        newErrors.delete(key);
       } else {
-        newEdits.set(`${tier}:${lane}`, { tier, lane, marginPercent: num });
+        newEdits.set(key, { tier, lane, marginPercent: num });
+        const err = validateMargin(num);
+        if (err) {
+          newErrors.set(key, err);
+        } else {
+          newErrors.delete(key);
+        }
       }
 
       setEdits(newEdits);
-      debouncedRecalc(newEdits, quoteInputs);
+      setMarginErrors(newErrors);
+
+      if (newErrors.size > 0) {
+        if (debounceRef.current) {
+          clearTimeout(debounceRef.current);
+          debounceRef.current = null;
+        }
+        if (abortRef.current) {
+          abortRef.current.abort();
+          abortRef.current = null;
+        }
+        requestTokenRef.current += 1;
+        setRecalculating(false);
+        setQuoteResult(null);
+        return;
+      }
+
+      const currentQuoteErrors = validateQuoteInputs(quoteInputs);
+      debouncedRecalc(newEdits, quoteInputs, currentQuoteErrors);
     },
-    [edits, quoteInputs, debouncedRecalc]
+    [edits, marginErrors, quoteInputs, debouncedRecalc]
   );
 
   const handleResetCell = useCallback(
     (tier: string, lane: Lane) => {
+      const key = `${tier}:${lane}`;
       const newEdits = new Map(edits);
-      newEdits.delete(`${tier}:${lane}`);
+      newEdits.delete(key);
+      const newErrors = new Map(marginErrors);
+      newErrors.delete(key);
       setEdits(newEdits);
+      setMarginErrors(newErrors);
       if (selectedCell?.tier === tier && selectedCell?.lane === lane) {
         setSelectedCell(null);
       }
-      debouncedRecalc(newEdits, quoteInputs);
+      const currentQuoteErrors = validateQuoteInputs(quoteInputs);
+      debouncedRecalc(newEdits, quoteInputs, currentQuoteErrors);
     },
-    [edits, quoteInputs, selectedCell, debouncedRecalc]
+    [edits, marginErrors, quoteInputs, selectedCell, debouncedRecalc]
   );
 
   const handleResetAll = useCallback(() => {
+    // Clear any pending debounced request
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    // Abort any in-flight request so stale response can't repaint
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
     setEdits(new Map());
+    setMarginErrors(new Map());
     setSelectedCell(null);
-    fetchPreview([], quoteInputs);
+    const currentQuoteErrors = validateQuoteInputs(quoteInputs);
+    fetchPreview([], quoteInputs, currentQuoteErrors);
   }, [quoteInputs, fetchPreview]);
 
   const handleQuoteChange = useCallback(
     (field: string, value: string) => {
       const newInputs = { ...quoteInputs, [field]: value };
       setQuoteInputs(newInputs);
-      debouncedRecalc(edits, newInputs);
+
+      const newQuoteErrors = validateQuoteInputs(newInputs);
+      setQuoteErrors(newQuoteErrors);
+
+      // If quote has errors, clear the stale quote result
+      if (newQuoteErrors.productCost || newQuoteErrors.quantity) {
+        setQuoteResult(null);
+      }
+
+      debouncedRecalc(edits, newInputs, newQuoteErrors);
     },
     [quoteInputs, edits, debouncedRecalc]
   );
@@ -237,8 +408,15 @@ export default function PricingPreview() {
     if (!selectedCell || !preview) return null;
     const tier = preview.tiers.find((t) => t.tier === selectedCell.tier);
     if (!tier) return null;
-    return { tier, laneData: tier.lanes[selectedCell.lane], lane: selectedCell.lane };
-  }, [selectedCell, preview]);
+    const key = `${selectedCell.tier}:${selectedCell.lane}`;
+    const hasError = marginErrors.has(key);
+    return {
+      tier,
+      laneData: tier.lanes[selectedCell.lane],
+      lane: selectedCell.lane,
+      hasError,
+    };
+  }, [selectedCell, preview, marginErrors]);
 
   if (loading && !preview) {
     return (
@@ -270,7 +448,12 @@ export default function PricingPreview() {
         </div>
       )}
 
-      <PricingContext policy={preview.pricingPolicy} dtf={preview.dtfContext} source={preview.source} />
+      <PricingContext
+        policy={preview.pricingPolicy}
+        dtf={preview.dtfContext}
+        source={preview.source}
+        schemaVersion={preview.schemaVersion}
+      />
 
       <GridControls
         isDirty={isDirty}
@@ -282,6 +465,7 @@ export default function PricingPreview() {
       <TierGrid
         tiers={preview.tiers}
         edits={edits}
+        marginErrors={marginErrors}
         selectedCell={selectedCell}
         onMarginChange={handleMarginChange}
         onCellSelect={setSelectedCell}
@@ -293,6 +477,7 @@ export default function PricingPreview() {
           tier={selectedTrace.tier}
           lane={selectedTrace.lane}
           data={selectedTrace.laneData}
+          hasError={selectedTrace.hasError}
           onClose={() => setSelectedCell(null)}
         />
       )}
@@ -300,6 +485,7 @@ export default function PricingPreview() {
       <QuoteImpactPanel
         inputs={quoteInputs}
         result={quoteResult}
+        errors={quoteErrors}
         onChange={handleQuoteChange}
         recalculating={recalculating}
       />
@@ -318,10 +504,12 @@ function PricingContext({
   policy,
   dtf,
   source,
+  schemaVersion,
 }: {
   policy: PricingPolicy;
   dtf: DtfContext;
   source: string;
+  schemaVersion: string;
 }) {
   return (
     <div className="rounded-lg border border-neutral-700/50 bg-neutral-800/50 p-5">
@@ -330,6 +518,7 @@ function PricingContext({
       </h2>
       <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-3">
         <CtxItem label="Contract Source" value={source.replace("lib/fixtures/", "")} />
+        <CtxItem label="Schema Version" value={schemaVersion} />
         <CtxItem label="Product Multiplier" value={`${policy.productCostMultiplier}x`} />
         <CtxItem label="Commission Reserve" value={fmtPercent(policy.commissionReserveRate)} />
         <CtxItem label="Rounding Increment" value={fmtCurrency(policy.roundingIncrement)} />
@@ -402,6 +591,7 @@ function GridControls({
 function TierGrid({
   tiers,
   edits,
+  marginErrors,
   selectedCell,
   onMarginChange,
   onCellSelect,
@@ -409,6 +599,7 @@ function TierGrid({
 }: {
   tiers: TierData[];
   edits: Map<string, Edit>;
+  marginErrors: MarginErrors;
   selectedCell: { tier: string; lane: Lane } | null;
   onMarginChange: (tier: string, lane: Lane, value: string) => void;
   onCellSelect: (cell: { tier: string; lane: Lane } | null) => void;
@@ -431,7 +622,13 @@ function TierGrid({
                 Max
               </th>
               <th className="text-right px-3 py-2 text-neutral-400 uppercase tracking-wider font-medium whitespace-nowrap">
-                COGS
+                Total COGS
+              </th>
+              <th className="text-right px-3 py-2 text-neutral-400 uppercase tracking-wider font-medium whitespace-nowrap">
+                Base COGS
+              </th>
+              <th className="text-right px-3 py-2 text-neutral-400 uppercase tracking-wider font-medium whitespace-nowrap">
+                Labor
               </th>
               {LANES.map((lane) => (
                 <React.Fragment key={lane}>
@@ -451,6 +648,7 @@ function TierGrid({
                 key={tier.tier}
                 tier={tier}
                 edits={edits}
+                marginErrors={marginErrors}
                 selectedCell={selectedCell}
                 onMarginChange={onMarginChange}
                 onCellSelect={onCellSelect}
@@ -468,6 +666,7 @@ function TierGrid({
             key={tier.tier}
             tier={tier}
             edits={edits}
+            marginErrors={marginErrors}
             selectedCell={selectedCell}
             onMarginChange={onMarginChange}
             onCellSelect={onCellSelect}
@@ -482,6 +681,7 @@ function TierGrid({
 function TierRow({
   tier,
   edits,
+  marginErrors,
   selectedCell,
   onMarginChange,
   onCellSelect,
@@ -489,6 +689,7 @@ function TierRow({
 }: {
   tier: TierData;
   edits: Map<string, Edit>;
+  marginErrors: MarginErrors;
   selectedCell: { tier: string; lane: Lane } | null;
   onMarginChange: (tier: string, lane: Lane, value: string) => void;
   onCellSelect: (cell: { tier: string; lane: Lane } | null) => void;
@@ -506,9 +707,17 @@ function TierRow({
       <td className="text-right px-3 py-2 text-neutral-400">
         {fmtCurrency(tier.activeTotalDtfCogs)}
       </td>
+      <td className="text-right px-3 py-2 text-neutral-400">
+        {fmtCurrency(tier.baseDtfCogs)}
+      </td>
+      <td className="text-right px-3 py-2 text-neutral-400">
+        {fmtCurrency(tier.laborRecovery)}
+      </td>
       {LANES.map((lane) => {
         const data = tier.lanes[lane];
-        const edit = edits.get(`${tier.tier}:${lane}`);
+        const key = `${tier.tier}:${lane}`;
+        const edit = edits.get(key);
+        const hasError = marginErrors.has(key);
         const isSelected =
           selectedCell?.tier === tier.tier && selectedCell?.lane === lane;
         const currentPrice = data.current.final;
@@ -523,6 +732,8 @@ function TierRow({
                 lane={lane}
                 currentMargin={data.currentMargin}
                 edit={edit}
+                hasError={hasError}
+                errorMsg={marginErrors.get(key)}
                 isSelected={isSelected}
                 onMarginChange={onMarginChange}
                 onSelect={() =>
@@ -533,16 +744,24 @@ function TierRow({
             </td>
             <td
               className={`text-right px-2 py-2 font-mono whitespace-nowrap ${
-                priceChanged
-                  ? "text-cyan-400"
-                  : "text-neutral-200"
+                hasError
+                  ? "text-neutral-500"
+                  : priceChanged
+                    ? "text-cyan-400"
+                    : "text-neutral-200"
               }`}
             >
-              {fmtCurrency(draftPrice)}
-              {priceChanged && (
-                <span className="block text-[10px] text-neutral-500 line-through">
-                  {fmtCurrency(currentPrice)}
-                </span>
+              {hasError ? (
+                <span aria-label={`${lane} price for tier ${tier.tier} unavailable`}>&mdash;</span>
+              ) : (
+                <>
+                  {fmtCurrency(draftPrice)}
+                  {priceChanged && (
+                    <span className="block text-[10px] text-neutral-500 line-through">
+                      {fmtCurrency(currentPrice)}
+                    </span>
+                  )}
+                </>
               )}
             </td>
           </React.Fragment>
@@ -557,6 +776,8 @@ function MarginInput({
   lane,
   currentMargin,
   edit,
+  hasError,
+  errorMsg,
   isSelected,
   onMarginChange,
   onSelect,
@@ -566,6 +787,8 @@ function MarginInput({
   lane: Lane;
   currentMargin: string;
   edit: Edit | undefined;
+  hasError: boolean;
+  errorMsg?: string;
   isSelected: boolean;
   onMarginChange: (tier: string, lane: Lane, value: string) => void;
   onSelect: () => void;
@@ -576,8 +799,6 @@ function MarginInput({
   const isEdited = edit != null;
   const numVal = edit?.marginPercent ?? currentPercent;
   const warning = marginWarning(numVal);
-  const isValid =
-    !edit || (edit.marginPercent >= 0 && edit.marginPercent < 100);
 
   return (
     <div className="relative">
@@ -591,8 +812,9 @@ function MarginInput({
           onChange={(e) => onMarginChange(tier, lane, e.target.value)}
           onFocus={onSelect}
           aria-label={`${lane} margin for tier ${tier}`}
+          aria-invalid={hasError || undefined}
           className={`w-14 px-1.5 py-1 text-xs text-right rounded border font-mono transition-colors ${
-            !isValid
+            hasError
               ? "border-red-400/50 bg-red-400/10 text-red-400"
               : isEdited
                 ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-400"
@@ -619,11 +841,13 @@ function MarginInput({
       {isEdited && (
         <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-cyan-400" title="Changed" />
       )}
-      {warning && isEdited && (
+      {warning && isEdited && !hasError && (
         <span className="block text-[9px] text-amber-400 mt-0.5">{warning}</span>
       )}
-      {!isValid && (
-        <span className="block text-[9px] text-red-400 mt-0.5">0-99%</span>
+      {hasError && (
+        <span className="block text-[9px] text-red-400 mt-0.5" role="alert">
+          {errorMsg ?? "0-99%"}
+        </span>
       )}
     </div>
   );
@@ -632,6 +856,7 @@ function MarginInput({
 function MobileTierCard({
   tier,
   edits,
+  marginErrors,
   selectedCell,
   onMarginChange,
   onCellSelect,
@@ -639,6 +864,7 @@ function MobileTierCard({
 }: {
   tier: TierData;
   edits: Map<string, Edit>;
+  marginErrors: MarginErrors;
   selectedCell: { tier: string; lane: Lane } | null;
   onMarginChange: (tier: string, lane: Lane, value: string) => void;
   onCellSelect: (cell: { tier: string; lane: Lane } | null) => void;
@@ -650,14 +876,21 @@ function MobileTierCard({
         <h3 className="text-sm font-semibold text-white font-display">
           {fmtQtyRange(tier.minQty, tier.maxQty)}
         </h3>
-        <span className="text-[11px] text-neutral-400">
-          COGS {fmtCurrency(tier.activeTotalDtfCogs)}
-        </span>
+        <div className="text-right">
+          <span className="text-[11px] text-neutral-400 block">
+            COGS {fmtCurrency(tier.activeTotalDtfCogs)}
+          </span>
+          <span className="text-[10px] text-neutral-500 block">
+            Base {fmtCurrency(tier.baseDtfCogs)} + Labor {fmtCurrency(tier.laborRecovery)}
+          </span>
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         {LANES.map((lane) => {
           const data = tier.lanes[lane];
-          const edit = edits.get(`${tier.tier}:${lane}`);
+          const key = `${tier.tier}:${lane}`;
+          const edit = edits.get(key);
+          const hasError = marginErrors.has(key);
           const isSelected =
             selectedCell?.tier === tier.tier && selectedCell?.lane === lane;
           const priceChanged = data.current.final !== data.draft.final;
@@ -672,6 +905,8 @@ function MobileTierCard({
                 lane={lane}
                 currentMargin={data.currentMargin}
                 edit={edit}
+                hasError={hasError}
+                errorMsg={marginErrors.get(key)}
                 isSelected={isSelected}
                 onMarginChange={onMarginChange}
                 onSelect={() =>
@@ -681,14 +916,24 @@ function MobileTierCard({
               />
               <div
                 className={`text-sm font-mono ${
-                  priceChanged ? "text-cyan-400" : "text-neutral-200"
+                  hasError
+                    ? "text-neutral-500"
+                    : priceChanged
+                      ? "text-cyan-400"
+                      : "text-neutral-200"
                 }`}
               >
-                {fmtCurrency(data.draft.final)}
-                {priceChanged && (
-                  <span className="text-[10px] text-neutral-500 line-through ml-1">
-                    {fmtCurrency(data.current.final)}
-                  </span>
+                {hasError ? (
+                  <span>&mdash;</span>
+                ) : (
+                  <>
+                    {fmtCurrency(data.draft.final)}
+                    {priceChanged && (
+                      <span className="text-[10px] text-neutral-500 line-through ml-1">
+                        {fmtCurrency(data.current.final)}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -703,11 +948,13 @@ function CalculationTrace({
   tier,
   lane,
   data,
+  hasError,
   onClose,
 }: {
   tier: TierData;
   lane: Lane;
   data: LaneData;
+  hasError: boolean;
   onClose: () => void;
 }) {
   const trace = data.draft;
@@ -730,50 +977,56 @@ function CalculationTrace({
           &times;
         </button>
       </div>
-      <dl className="space-y-2 text-sm">
-        <TraceRow label="Base DTF COGS" value={fmtCurrency(trace.baseDtfCogs)} />
-        <TraceRow
-          label="At-Cost Labor Recovery"
-          value={fmtCurrency(trace.laborRecovery)}
-        />
-        <TraceRow
-          label="Target Gross Margin"
-          value={fmtPercent(trace.targetMargin)}
-          highlight={data.edited}
-        />
-        <TraceRow
-          label="Margin-Loaded Amount"
-          value={fmtCurrency(trace.marginLoadedAmount)}
-        />
-        <TraceRow label="Raw Calculated Price" value={fmtCurrency(trace.raw)} />
-        <TraceRow label="Rounding Increment" value={fmtCurrency(trace.increment)} />
-        <div className="border-t border-neutral-700/50 pt-2">
+      {hasError ? (
+        <p className="text-sm text-neutral-500">
+          Fix the margin value to see the calculation trace.
+        </p>
+      ) : (
+        <dl className="space-y-2 text-sm">
+          <TraceRow label="Base DTF COGS" value={fmtCurrency(trace.baseDtfCogs)} />
           <TraceRow
-            label="Final Calculated Price"
-            value={fmtCurrency(trace.final)}
-            bold
+            label="At-Cost Labor Recovery"
+            value={fmtCurrency(trace.laborRecovery)}
           />
-        </div>
-        <TraceRow
-          label="Achieved Margin After Rounding"
-          value={fmtPercent(trace.achievedMargin)}
-        />
-        {data.edited && data.current.final !== data.draft.final && (
+          <TraceRow
+            label="Target Gross Margin"
+            value={fmtPercent(trace.targetMargin)}
+            highlight={data.edited}
+          />
+          <TraceRow
+            label="Margin-Loaded Amount"
+            value={fmtCurrency(trace.marginLoadedAmount)}
+          />
+          <TraceRow label="Raw Calculated Price" value={fmtCurrency(trace.raw)} />
+          <TraceRow label="Rounding Increment" value={fmtCurrency(trace.increment)} />
           <div className="border-t border-neutral-700/50 pt-2">
             <TraceRow
-              label="Current Price"
-              value={fmtCurrency(data.current.final)}
-            />
-            <TraceRow
-              label="Price Delta"
-              value={fmtDelta(
-                parseFloat(data.draft.final) - parseFloat(data.current.final)
-              )}
-              highlight
+              label="Final Calculated Price"
+              value={fmtCurrency(trace.final)}
+              bold
             />
           </div>
-        )}
-      </dl>
+          <TraceRow
+            label="Achieved Margin After Rounding"
+            value={fmtPercent(trace.achievedMargin)}
+          />
+          {data.edited && data.current.final !== data.draft.final && (
+            <div className="border-t border-neutral-700/50 pt-2">
+              <TraceRow
+                label="Current Price"
+                value={fmtCurrency(data.current.final)}
+              />
+              <TraceRow
+                label="Price Delta"
+                value={fmtDelta(
+                  parseFloat(data.draft.final) - parseFloat(data.current.final)
+                )}
+                highlight
+              />
+            </div>
+          )}
+        </dl>
+      )}
     </div>
   );
 }
@@ -810,11 +1063,13 @@ function TraceRow({
 function QuoteImpactPanel({
   inputs,
   result,
+  errors,
   onChange,
   recalculating,
 }: {
   inputs: { productCost: string; quantity: string; lane: Lane };
   result: QuoteResponse | null;
+  errors: QuoteFieldErrors;
   onChange: (field: string, value: string) => void;
   recalculating: boolean;
 }) {
@@ -840,8 +1095,18 @@ function QuoteImpactPanel({
             value={inputs.productCost}
             onChange={(e) => onChange("productCost", e.target.value)}
             aria-label="Quote product cost"
-            className="w-full px-2 py-1.5 text-xs rounded border border-neutral-600 bg-neutral-700/50 text-neutral-200 font-mono focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
+            aria-invalid={!!errors.productCost || undefined}
+            className={`w-full px-2 py-1.5 text-xs rounded border ${
+              errors.productCost
+                ? "border-red-400/50 bg-red-400/10 text-red-400"
+                : "border-neutral-600 bg-neutral-700/50 text-neutral-200"
+            } font-mono focus:outline-none focus:ring-1 focus:ring-cyan-400/50`}
           />
+          {errors.productCost && (
+            <span className="block text-[9px] text-red-400 mt-0.5" role="alert">
+              {errors.productCost}
+            </span>
+          )}
         </div>
         <div>
           <label
@@ -859,8 +1124,18 @@ function QuoteImpactPanel({
             value={inputs.quantity}
             onChange={(e) => onChange("quantity", e.target.value)}
             aria-label="Quote quantity"
-            className="w-full px-2 py-1.5 text-xs rounded border border-neutral-600 bg-neutral-700/50 text-neutral-200 font-mono focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
+            aria-invalid={!!errors.quantity || undefined}
+            className={`w-full px-2 py-1.5 text-xs rounded border ${
+              errors.quantity
+                ? "border-red-400/50 bg-red-400/10 text-red-400"
+                : "border-neutral-600 bg-neutral-700/50 text-neutral-200"
+            } font-mono focus:outline-none focus:ring-1 focus:ring-cyan-400/50`}
           />
+          {errors.quantity && (
+            <span className="block text-[9px] text-red-400 mt-0.5" role="alert">
+              {errors.quantity}
+            </span>
+          )}
         </div>
         <div>
           <label
@@ -890,54 +1165,119 @@ function QuoteImpactPanel({
       )}
 
       {result && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <h3 className="text-[11px] uppercase tracking-wider text-neutral-400 mb-2">
-              Current
-            </h3>
-            <dl className="space-y-1.5 text-sm">
-              <QuoteLine label="Product Sell" value={fmtCurrency(result.current.productSell)} />
-              <QuoteLine label="Decoration Sell" value={fmtCurrency(result.current.decorationSell)} />
-              <QuoteLine label="Unit Price" value={fmtCurrency(result.current.unitPrice)} bold />
-              <QuoteLine label="Order Total" value={fmtCurrency(result.current.orderTotal)} />
-              <QuoteLine label="Commission / Item" value={fmtCurrency(result.current.commissionReserve)} />
-            </dl>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <h3 className="text-[11px] uppercase tracking-wider text-neutral-400 mb-2">
+                Current
+              </h3>
+              <dl className="space-y-1.5 text-sm">
+                <QuoteLine label="Product Sell" value={fmtCurrency(result.current.productSell)} />
+                <QuoteLine label="Decoration Sell" value={fmtCurrency(result.current.decorationSell)} />
+                <QuoteLine label="Unit Price" value={fmtCurrency(result.current.unitPrice)} bold />
+                <QuoteLine label="Order Total" value={fmtCurrency(result.current.orderTotal)} />
+                <QuoteLine label="Commission / Item" value={fmtCurrency(result.current.commissionReserve)} />
+              </dl>
+            </div>
+            <div>
+              <h3 className="text-[11px] uppercase tracking-wider text-neutral-400 mb-2">
+                Draft
+              </h3>
+              <dl className="space-y-1.5 text-sm">
+                <QuoteLine label="Product Sell" value={fmtCurrency(result.draft.productSell)} />
+                <QuoteLine
+                  label="Decoration Sell"
+                  value={fmtCurrency(result.draft.decorationSell)}
+                  delta={result.delta.decorationSell}
+                />
+                <QuoteLine
+                  label="Unit Price"
+                  value={fmtCurrency(result.draft.unitPrice)}
+                  delta={result.delta.unitPrice}
+                  bold
+                />
+                <QuoteLine
+                  label="Order Total"
+                  value={fmtCurrency(result.draft.orderTotal)}
+                  delta={result.delta.orderTotal}
+                />
+                <QuoteLine
+                  label="Commission / Item"
+                  value={fmtCurrency(result.draft.commissionReserve)}
+                  delta={result.delta.commissionReserve}
+                />
+              </dl>
+              {result.delta.orderTotal !== "0.00" && (
+                <div className="mt-3 pt-2 border-t border-neutral-700/30">
+                  <span className="text-xs text-cyan-400">
+                    Order delta: {fmtDelta(result.delta.orderTotal)} ({fmtDeltaPercent(result.delta.orderPercent)})
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-          <div>
-            <h3 className="text-[11px] uppercase tracking-wider text-neutral-400 mb-2">
-              Draft
+
+          {/* Contribution Comparison */}
+          <div className="border-t border-neutral-700/50 pt-4">
+            <h3 className="text-[11px] uppercase tracking-wider text-neutral-400 mb-3">
+              Contribution Comparison
             </h3>
-            <dl className="space-y-1.5 text-sm">
-              <QuoteLine label="Product Sell" value={fmtCurrency(result.draft.productSell)} />
-              <QuoteLine
-                label="Decoration Sell"
-                value={fmtCurrency(result.draft.decorationSell)}
-                delta={result.delta.decorationSell}
-              />
-              <QuoteLine
-                label="Unit Price"
-                value={fmtCurrency(result.draft.unitPrice)}
-                delta={result.delta.unitPrice}
-                bold
-              />
-              <QuoteLine
-                label="Order Total"
-                value={fmtCurrency(result.draft.orderTotal)}
-                delta={result.delta.orderTotal}
-              />
-              <QuoteLine
-                label="Commission / Item"
-                value={fmtCurrency(result.draft.commissionReserve)}
-                delta={result.delta.commissionReserve}
-              />
-            </dl>
-            {result.delta.orderTotal !== "0.00" && (
-              <div className="mt-3 pt-2 border-t border-neutral-700/30">
-                <span className="text-xs text-cyan-400">
-                  Order delta: {fmtDelta(result.delta.orderTotal)} ({fmtDeltaPercent(result.delta.orderPercent)})
-                </span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <h4 className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1.5">
+                  Current
+                </h4>
+                <dl className="space-y-1.5 text-sm">
+                  <QuoteLine label="Gross Profit / Item" value={fmtCurrency(result.current.grossProfitBeforeCommission)} />
+                  <QuoteLine label="Net Contribution / Item" value={fmtCurrency(result.current.netContributionAfterCommission)} />
+                  <QuoteLine label="Contribution Margin" value={fmtPercent(result.current.contributionMarginAfterCommission)} />
+                  <QuoteLine label="Net Contribution / Order" value={fmtCurrency(result.current.netContributionOrderTotal)} bold />
+                </dl>
               </div>
-            )}
+              <div>
+                <h4 className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1.5">
+                  Draft
+                </h4>
+                <dl className="space-y-1.5 text-sm">
+                  <QuoteLine
+                    label="Gross Profit / Item"
+                    value={fmtCurrency(result.draft.grossProfitBeforeCommission)}
+                    delta={result.delta.grossProfitBeforeCommission}
+                  />
+                  <QuoteLine
+                    label="Net Contribution / Item"
+                    value={fmtCurrency(result.draft.netContributionAfterCommission)}
+                    delta={result.delta.netContributionAfterCommission}
+                  />
+                  <QuoteLine
+                    label="Contribution Margin"
+                    value={fmtPercent(result.draft.contributionMarginAfterCommission)}
+                    delta={result.delta.contributionMarginAfterCommission}
+                    deltaIsPercent
+                  />
+                  <QuoteLine
+                    label="Net Contribution / Order"
+                    value={fmtCurrency(result.draft.netContributionOrderTotal)}
+                    delta={result.delta.netContributionOrderTotal}
+                    bold
+                  />
+                </dl>
+              </div>
+              <div>
+                <h4 className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1.5">
+                  Delta
+                </h4>
+                <dl className="space-y-1.5 text-sm">
+                  <QuoteLine label="Gross Profit / Item" value={fmtDelta(result.delta.grossProfitBeforeCommission)} />
+                  <QuoteLine label="Net Contribution / Item" value={fmtDelta(result.delta.netContributionAfterCommission)} />
+                  <QuoteLine label="Contribution Margin" value={fmtDeltaPercent(result.delta.contributionMarginAfterCommission)} />
+                  <QuoteLine label="Net Contribution / Order" value={fmtDelta(result.delta.netContributionOrderTotal)} bold />
+                </dl>
+              </div>
+            </div>
+            <p className="text-[10px] text-neutral-500 mt-2">
+              Commission is per item. Net contribution = gross profit minus commission per item.
+            </p>
           </div>
         </div>
       )}
@@ -956,11 +1296,13 @@ function QuoteLine({
   value,
   delta,
   bold,
+  deltaIsPercent,
 }: {
   label: string;
   value: string;
   delta?: string;
   bold?: boolean;
+  deltaIsPercent?: boolean;
 }) {
   const deltaNum = delta ? parseFloat(delta) : 0;
   const hasDelta = delta && deltaNum !== 0;
@@ -980,7 +1322,7 @@ function QuoteLine({
               deltaNum > 0 ? "text-amber-400" : "text-green-400"
             }`}
           >
-            {fmtDelta(deltaNum)}
+            {deltaIsPercent ? fmtDeltaPercent(deltaNum) : fmtDelta(deltaNum)}
           </span>
         )}
       </dd>
