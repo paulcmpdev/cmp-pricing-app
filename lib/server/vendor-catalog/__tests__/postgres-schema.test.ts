@@ -115,4 +115,10 @@ describe("vendor catalog PostgreSQL schema", () => {
     expect(VENDOR_CATALOG_POSTGRES_SCHEMA_SQL).toContain("pg_get_constraintdef");
     expect(VENDOR_CATALOG_POSTGRES_SCHEMA_SQL).toContain("pg_get_indexdef");
   });
+
+  it("ignores PostgreSQL 18 NOT NULL constraint rows in the rollback contract count", () => {
+    expect(VENDOR_CATALOG_POSTGRES_SCHEMA_SQL).toContain(
+      "conrelid = rollback_table AND contype <> 'n'"
+    );
+  });
 });

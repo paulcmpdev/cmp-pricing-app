@@ -67,6 +67,10 @@ function partialOverview(): AdminCatalogOverview {
       ss: { totalCount: 1, latestAt: "2026-08-22T12:00:00.000Z" },
       sanmar: { totalCount: 0, latestAt: null },
     },
+    sectionAvailability: {
+      recentJobs: true,
+      rollbackSummary: true,
+    },
     totals: {
       styleCount: 6381,
       variantCount: 221824,
@@ -100,5 +104,26 @@ describe("AdminDashboard", () => {
     expect(html).toContain("Catalog Unavailable");
     expect(html).toContain("The vendor catalog overview is unavailable.");
     expect(html).not.toContain("System Overview");
+  });
+
+  it("labels failed optional sections without hiding healthy catalog data", () => {
+    const overview = partialOverview();
+    overview.recentJobs = [];
+    overview.rollbackSummary = {
+      ss: { totalCount: 0, latestAt: null },
+      sanmar: { totalCount: 0, latestAt: null },
+    };
+    overview.sectionAvailability = {
+      recentJobs: false,
+      rollbackSummary: false,
+    };
+
+    const html = renderToStaticMarkup(<AdminDashboard overview={overview} />);
+
+    expect(html).toContain("System Overview");
+    expect(html).toContain("Refresh history unavailable.");
+    expect(html).toContain("Rollback history unavailable.");
+    expect(html).not.toContain("No refresh history available.");
+    expect(html).not.toContain("Catalog Unavailable");
   });
 });

@@ -177,12 +177,13 @@ WITH audit_table AS (
     format('%I.%I', current_schema(), 'catalog_rollbacks')
   ) AS oid
 )
-SELECT oid IS NOT NULL AS table_exists,
+SELECT a.oid IS NOT NULL AS table_exists,
        (SELECT count(*) FROM pg_constraint c
-         WHERE c.conrelid = oid) AS constraint_count,
+         WHERE c.conrelid = a.oid
+           AND c.contype <> 'n') AS business_constraint_count,
        (SELECT count(*) = 7
           FROM pg_constraint c
-         WHERE c.conrelid = oid
+         WHERE c.conrelid = a.oid
            AND c.conname = ANY (ARRAY[
              'catalog_rollbacks_pkey',
              'catalog_rollbacks_vendor_check',
@@ -193,11 +194,11 @@ SELECT oid IS NOT NULL AS table_exists,
              'catalog_rollbacks_to_import_vendor_fkey'
            ])) AS required_constraints_present,
        (SELECT count(*) FROM pg_trigger t
-         WHERE t.tgrelid = oid AND NOT t.tgisinternal AND t.tgenabled <> 'D')
+         WHERE t.tgrelid = a.oid AND NOT t.tgisinternal AND t.tgenabled <> 'D')
          AS enabled_trigger_count,
        (SELECT count(*) = 2
           FROM pg_trigger t
-         WHERE t.tgrelid = oid
+         WHERE t.tgrelid = a.oid
            AND NOT t.tgisinternal
            AND t.tgenabled <> 'D'
            AND t.tgname = ANY (ARRAY[
@@ -213,16 +214,19 @@ SELECT oid IS NOT NULL AS table_exists,
        to_regclass(format('%I.%I', current_schema(),
          'idx_catalog_rollbacks_to_import_vendor')) IS NOT NULL
          AS to_import_index_exists
-  FROM audit_table;
+  FROM audit_table a;
 
 COMMIT;
 SQL
 ```
 
 Expected rollback contract values are `table_exists = true`,
-`constraint_count = 7`, `required_constraints_present = true`,
+`business_constraint_count = 7`, `required_constraints_present = true`,
 `enabled_trigger_count = 2`, `required_triggers_enabled = true`, and all three
-index flags `true`. The non-terminal-jobs query must return zero rows.
+index flags `true`. PostgreSQL 18 exposes `NOT NULL` declarations as
+`pg_constraint` rows with `contype = 'n'`; those rows are intentionally excluded
+from the seven business constraints. The non-terminal-jobs query must return zero
+rows.
 
 This read-only query checks required object names/counts, enabled triggers, and
 index presence; it does not validate complete object definitions. Exact
