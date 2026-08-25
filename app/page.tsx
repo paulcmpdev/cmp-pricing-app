@@ -1,4 +1,5 @@
 import { getCatalogEntries } from "@/lib/server/catalog";
+import { isAdditionalLocationsPreviewEnabled } from "@/lib/server/pricing-preview-gate";
 import QuoteDeskClient from "./concepts/quote-desk/QuoteDeskClient";
 import Image from "next/image";
 import Link from "next/link";
@@ -7,8 +8,11 @@ export const metadata = {
   title: "Quote Desk - CMP Pricing",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function RootPage() {
   const catalog = getCatalogEntries();
+  const additionalLocationsEnabled = isAdditionalLocationsPreviewEnabled();
 
   return (
     <div className="min-h-screen flex flex-col bg-cmp-surface">
@@ -43,7 +47,11 @@ export default function RootPage() {
 
       {/* Main content */}
       <main className="flex-1">
-        <QuoteDeskClient catalog={catalog} mode="primary" />
+        <QuoteDeskClient
+          catalog={catalog}
+          mode="primary"
+          additionalLocationsEnabled={additionalLocationsEnabled}
+        />
       </main>
     </div>
   );

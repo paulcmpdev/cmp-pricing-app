@@ -1,0 +1,1682 @@
+{
+  "schemaVersion": "1.0.0",
+  "source": {
+    "spreadsheetId": "1dtN83KQ2ERy6nozPJe65InaRvq0ydCdvUllTH9DtW9c",
+    "sheet": "Additional Location Matrix",
+    "range": "A4:L111",
+    "capturedAt": "2026-08-25",
+    "note": "Read-only capture of live workbook values for protected session-only app preview."
+  },
+  "marginLanes": {
+    "T1": 0.58,
+    "T2": 0.52,
+    "T3": 0.44,
+    "T4": 0.35
+  },
+  "rows": [
+    {
+      "printKey": "STRAIGHT",
+      "location": "Straight Print",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 3.526643737672584,
+      "prices": {
+        "T1": 8.4,
+        "T2": 7.3500000000000005,
+        "T3": 6.300000000000001,
+        "T4": 5.45
+      }
+    },
+    {
+      "printKey": "STRAIGHT",
+      "location": "Straight Print",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 3.1554585524873984,
+      "prices": {
+        "T1": 7.550000000000001,
+        "T2": 6.6000000000000005,
+        "T3": 5.65,
+        "T4": 4.9
+      }
+    },
+    {
+      "printKey": "STRAIGHT",
+      "location": "Straight Print",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 2.9370539940828397,
+      "prices": {
+        "T1": 7,
+        "T2": 6.15,
+        "T3": 5.25,
+        "T4": 4.55
+      }
+    },
+    {
+      "printKey": "STRAIGHT",
+      "location": "Straight Print",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 2.4854354043392504,
+      "prices": {
+        "T1": 5.95,
+        "T2": 5.2,
+        "T3": 4.45,
+        "T4": 3.85
+      }
+    },
+    {
+      "printKey": "STRAIGHT",
+      "location": "Straight Print",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 2.113172473304768,
+      "prices": {
+        "T1": 5.050000000000001,
+        "T2": 4.45,
+        "T3": 3.8000000000000003,
+        "T4": 3.3000000000000003
+      }
+    },
+    {
+      "printKey": "STRAIGHT",
+      "location": "Straight Print",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 1.7918162669858169,
+      "prices": {
+        "T1": 4.3,
+        "T2": 3.75,
+        "T3": 3.2,
+        "T4": 2.8000000000000003
+      }
+    },
+    {
+      "printKey": "STRAIGHT",
+      "location": "Straight Print",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 1.739313039385364,
+      "prices": {
+        "T1": 4.15,
+        "T2": 3.6500000000000004,
+        "T3": 3.1500000000000004,
+        "T4": 2.7
+      }
+    },
+    {
+      "printKey": "STRAIGHT",
+      "location": "Straight Print",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 1.5998770710059174,
+      "prices": {
+        "T1": 3.85,
+        "T2": 3.35,
+        "T3": 2.9000000000000004,
+        "T4": 2.5
+      }
+    },
+    {
+      "printKey": "PERSONALIZATION",
+      "location": "Personalization",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 3.526643737672584,
+      "prices": {
+        "T1": 8.4,
+        "T2": 7.3500000000000005,
+        "T3": 6.300000000000001,
+        "T4": 5.45
+      }
+    },
+    {
+      "printKey": "PERSONALIZATION",
+      "location": "Personalization",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 3.1554585524873984,
+      "prices": {
+        "T1": 7.550000000000001,
+        "T2": 6.6000000000000005,
+        "T3": 5.65,
+        "T4": 4.9
+      }
+    },
+    {
+      "printKey": "PERSONALIZATION",
+      "location": "Personalization",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 2.9370539940828397,
+      "prices": {
+        "T1": 7,
+        "T2": 6.15,
+        "T3": 5.25,
+        "T4": 4.55
+      }
+    },
+    {
+      "printKey": "PERSONALIZATION",
+      "location": "Personalization",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 2.4854354043392504,
+      "prices": {
+        "T1": 5.95,
+        "T2": 5.2,
+        "T3": 4.45,
+        "T4": 3.85
+      }
+    },
+    {
+      "printKey": "PERSONALIZATION",
+      "location": "Personalization",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 2.113172473304768,
+      "prices": {
+        "T1": 5.050000000000001,
+        "T2": 4.45,
+        "T3": 3.8000000000000003,
+        "T4": 3.3000000000000003
+      }
+    },
+    {
+      "printKey": "PERSONALIZATION",
+      "location": "Personalization",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 1.7918162669858169,
+      "prices": {
+        "T1": 4.3,
+        "T2": 3.75,
+        "T3": 3.2,
+        "T4": 2.8000000000000003
+      }
+    },
+    {
+      "printKey": "PERSONALIZATION",
+      "location": "Personalization",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 1.739313039385364,
+      "prices": {
+        "T1": 4.15,
+        "T2": 3.6500000000000004,
+        "T3": 3.1500000000000004,
+        "T4": 2.7
+      }
+    },
+    {
+      "printKey": "PERSONALIZATION",
+      "location": "Personalization",
+      "widthIn": 10.5,
+      "heightIn": 5.8,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 1.5998770710059174,
+      "prices": {
+        "T1": 3.85,
+        "T2": 3.35,
+        "T3": 2.9000000000000004,
+        "T4": 2.5
+      }
+    },
+    {
+      "printKey": "ARCHED",
+      "location": "Arched Print",
+      "widthIn": 10.5,
+      "heightIn": 8.02,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 4.3598104043392505,
+      "prices": {
+        "T1": 10.4,
+        "T2": 9.1,
+        "T3": 7.800000000000001,
+        "T4": 6.75
+      }
+    },
+    {
+      "printKey": "ARCHED",
+      "location": "Arched Print",
+      "widthIn": 10.5,
+      "heightIn": 8.02,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 3.942727071005917,
+      "prices": {
+        "T1": 9.4,
+        "T2": 8.25,
+        "T3": 7.050000000000001,
+        "T4": 6.1000000000000005
+      }
+    },
+    {
+      "printKey": "ARCHED",
+      "location": "Arched Print",
+      "widthIn": 10.5,
+      "heightIn": 8.02,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 3.2492548487836945,
+      "prices": {
+        "T1": 7.75,
+        "T2": 6.800000000000001,
+        "T3": 5.8500000000000005,
+        "T4": 5
+      }
+    },
+    {
+      "printKey": "ARCHED",
+      "location": "Arched Print",
+      "widthIn": 10.5,
+      "heightIn": 8.02,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 2.9018937376725833,
+      "prices": {
+        "T1": 6.95,
+        "T2": 6.050000000000001,
+        "T3": 5.2,
+        "T4": 4.5
+      }
+    },
+    {
+      "printKey": "ARCHED",
+      "location": "Arched Print",
+      "widthIn": 10.5,
+      "heightIn": 8.02,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 2.6936992932281396,
+      "prices": {
+        "T1": 6.45,
+        "T2": 5.65,
+        "T3": 4.8500000000000005,
+        "T4": 4.15
+      }
+    },
+    {
+      "printKey": "ARCHED",
+      "location": "Arched Print",
+      "widthIn": 10.5,
+      "heightIn": 8.02,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 2.386873622730055,
+      "prices": {
+        "T1": 5.7,
+        "T2": 5,
+        "T3": 4.3,
+        "T4": 3.7
+      }
+    },
+    {
+      "printKey": "ARCHED",
+      "location": "Arched Print",
+      "widthIn": 10.5,
+      "heightIn": 8.02,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 2.220643737672584,
+      "prices": {
+        "T1": 5.300000000000001,
+        "T2": 4.65,
+        "T3": 4,
+        "T4": 3.45
+      }
+    },
+    {
+      "printKey": "ARCHED",
+      "location": "Arched Print",
+      "widthIn": 10.5,
+      "heightIn": 8.02,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 2.101877071005917,
+      "prices": {
+        "T1": 5.050000000000001,
+        "T2": 4.4,
+        "T3": 3.8000000000000003,
+        "T4": 3.25
+      }
+    },
+    {
+      "printKey": "CIRCLE",
+      "location": "Circle Print",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 5.191477071005917,
+      "prices": {
+        "T1": 12.4,
+        "T2": 10.850000000000001,
+        "T3": 9.3,
+        "T4": 8
+      }
+    },
+    {
+      "printKey": "CIRCLE",
+      "location": "Circle Print",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 4.651477071005917,
+      "prices": {
+        "T1": 11.100000000000001,
+        "T2": 9.700000000000001,
+        "T3": 8.35,
+        "T4": 7.2
+      }
+    },
+    {
+      "printKey": "CIRCLE",
+      "location": "Circle Print",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 3.721199293228139,
+      "prices": {
+        "T1": 8.9,
+        "T2": 7.800000000000001,
+        "T3": 6.65,
+        "T4": 5.75
+      }
+    },
+    {
+      "printKey": "CIRCLE",
+      "location": "Circle Print",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 3.467898639633368,
+      "prices": {
+        "T1": 8.3,
+        "T2": 7.25,
+        "T3": 6.2,
+        "T4": 5.3500000000000005
+      }
+    },
+    {
+      "printKey": "CIRCLE",
+      "location": "Circle Print",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 3.007177071005917,
+      "prices": {
+        "T1": 7.2,
+        "T2": 6.300000000000001,
+        "T3": 5.4,
+        "T4": 4.65
+      }
+    },
+    {
+      "printKey": "CIRCLE",
+      "location": "Circle Print",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 2.8179368025495415,
+      "prices": {
+        "T1": 6.75,
+        "T2": 5.9,
+        "T3": 5.050000000000001,
+        "T4": 4.3500000000000005
+      }
+    },
+    {
+      "printKey": "CIRCLE",
+      "location": "Circle Print",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 2.620042644776409,
+      "prices": {
+        "T1": 6.25,
+        "T2": 5.5,
+        "T3": 4.7,
+        "T4": 4.05
+      }
+    },
+    {
+      "printKey": "CIRCLE",
+      "location": "Circle Print",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 2.523857071005917,
+      "prices": {
+        "T1": 6.050000000000001,
+        "T2": 5.300000000000001,
+        "T3": 4.55,
+        "T4": 3.9000000000000004
+      }
+    },
+    {
+      "printKey": "VERTICAL",
+      "location": "Vertical Print",
+      "widthIn": 4,
+      "heightIn": 10.5,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 3.2756437376725835,
+      "prices": {
+        "T1": 7.800000000000001,
+        "T2": 6.8500000000000005,
+        "T3": 5.8500000000000005,
+        "T4": 5.050000000000001
+      }
+    },
+    {
+      "printKey": "VERTICAL",
+      "location": "Vertical Print",
+      "widthIn": 4,
+      "heightIn": 10.5,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 2.5005155325443784,
+      "prices": {
+        "T1": 6,
+        "T2": 5.25,
+        "T3": 4.5,
+        "T4": 3.85
+      }
+    },
+    {
+      "printKey": "VERTICAL",
+      "location": "Vertical Print",
+      "widthIn": 4,
+      "heightIn": 10.5,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 2.415088182117028,
+      "prices": {
+        "T1": 5.800000000000001,
+        "T2": 5.050000000000001,
+        "T3": 4.3500000000000005,
+        "T4": 3.75
+      }
+    },
+    {
+      "printKey": "VERTICAL",
+      "location": "Vertical Print",
+      "widthIn": 4,
+      "heightIn": 10.5,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 2.10433421386306,
+      "prices": {
+        "T1": 5.050000000000001,
+        "T2": 4.4,
+        "T3": 3.8000000000000003,
+        "T4": 3.25
+      }
+    },
+    {
+      "printKey": "VERTICAL",
+      "location": "Vertical Print",
+      "widthIn": 4,
+      "heightIn": 10.5,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 1.7616313919935713,
+      "prices": {
+        "T1": 4.2,
+        "T2": 3.7,
+        "T3": 3.1500000000000004,
+        "T4": 2.75
+      }
+    },
+    {
+      "printKey": "VERTICAL",
+      "location": "Vertical Print",
+      "widthIn": 4,
+      "heightIn": 10.5,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 1.4439076265614728,
+      "prices": {
+        "T1": 3.45,
+        "T2": 3.0500000000000003,
+        "T3": 2.6,
+        "T4": 2.25
+      }
+    },
+    {
+      "printKey": "VERTICAL",
+      "location": "Vertical Print",
+      "widthIn": 4,
+      "heightIn": 10.5,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 1.3460422883972216,
+      "prices": {
+        "T1": 3.25,
+        "T2": 2.85,
+        "T3": 2.45,
+        "T4": 2.1
+      }
+    },
+    {
+      "printKey": "VERTICAL",
+      "location": "Vertical Print",
+      "widthIn": 4,
+      "heightIn": 10.5,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 1.2179170710059173,
+      "prices": {
+        "T1": 2.9000000000000004,
+        "T2": 2.5500000000000003,
+        "T3": 2.2,
+        "T4": 1.9000000000000001
+      }
+    },
+    {
+      "printKey": "CHEST",
+      "location": "Chest Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 1.6098104043392505,
+      "prices": {
+        "T1": 3.85,
+        "T2": 3.4000000000000004,
+        "T3": 2.9000000000000004,
+        "T4": 2.5
+      }
+    },
+    {
+      "printKey": "CHEST",
+      "location": "Chest Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 1.3868802968123688,
+      "prices": {
+        "T1": 3.35,
+        "T2": 2.9000000000000004,
+        "T3": 2.5,
+        "T4": 2.15
+      }
+    },
+    {
+      "printKey": "CHEST",
+      "location": "Chest Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 1.2211992932281392,
+      "prices": {
+        "T1": 2.95,
+        "T2": 2.5500000000000003,
+        "T3": 2.2,
+        "T4": 1.9000000000000001
+      }
+    },
+    {
+      "printKey": "CHEST",
+      "location": "Chest Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 1.0268937376725837,
+      "prices": {
+        "T1": 2.45,
+        "T2": 2.15,
+        "T3": 1.85,
+        "T4": 1.6
+      }
+    },
+    {
+      "printKey": "CHEST",
+      "location": "Chest Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 0.9343474413762876,
+      "prices": {
+        "T1": 2.25,
+        "T2": 1.9500000000000002,
+        "T3": 1.7000000000000002,
+        "T4": 1.4500000000000002
+      }
+    },
+    {
+      "printKey": "CHEST",
+      "location": "Chest Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 0.8584491206953582,
+      "prices": {
+        "T1": 2.0500000000000003,
+        "T2": 1.8,
+        "T3": 1.55,
+        "T4": 1.35
+      }
+    },
+    {
+      "printKey": "CHEST",
+      "location": "Chest Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 0.7018970710059171,
+      "prices": {
+        "T1": 1.7000000000000002,
+        "T2": 1.5,
+        "T3": 1.3,
+        "T4": 1.1
+      }
+    },
+    {
+      "printKey": "CHEST",
+      "location": "Chest Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 0.5939370710059172,
+      "prices": {
+        "T1": 1.4500000000000002,
+        "T2": 1.25,
+        "T3": 1.1,
+        "T4": 0.9500000000000001
+      }
+    },
+    {
+      "printKey": "OFFSET",
+      "location": "Full Offset Print",
+      "widthIn": 4.5,
+      "heightIn": 10,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 3.2756437376725835,
+      "prices": {
+        "T1": 7.800000000000001,
+        "T2": 6.8500000000000005,
+        "T3": 5.8500000000000005,
+        "T4": 5.050000000000001
+      }
+    },
+    {
+      "printKey": "OFFSET",
+      "location": "Full Offset Print",
+      "widthIn": 4.5,
+      "heightIn": 10,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 2.692727071005917,
+      "prices": {
+        "T1": 6.45,
+        "T2": 5.65,
+        "T3": 4.8500000000000005,
+        "T4": 4.15
+      }
+    },
+    {
+      "printKey": "OFFSET",
+      "location": "Full Offset Print",
+      "widthIn": 4.5,
+      "heightIn": 10,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 2.6255986926275385,
+      "prices": {
+        "T1": 6.300000000000001,
+        "T2": 5.5,
+        "T3": 4.7,
+        "T4": 4.05
+      }
+    },
+    {
+      "printKey": "OFFSET",
+      "location": "Full Offset Print",
+      "widthIn": 4.5,
+      "heightIn": 10,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 2.438466866924284,
+      "prices": {
+        "T1": 5.8500000000000005,
+        "T2": 5.1000000000000005,
+        "T3": 4.4,
+        "T4": 3.8000000000000003
+      }
+    },
+    {
+      "printKey": "OFFSET",
+      "location": "Full Offset Print",
+      "widthIn": 4.5,
+      "heightIn": 10,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 1.9745250162113965,
+      "prices": {
+        "T1": 4.75,
+        "T2": 4.15,
+        "T3": 3.5500000000000003,
+        "T4": 3.0500000000000003
+      }
+    },
+    {
+      "printKey": "OFFSET",
+      "location": "Full Offset Print",
+      "widthIn": 4.5,
+      "heightIn": 10,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 1.6100173394622932,
+      "prices": {
+        "T1": 3.85,
+        "T2": 3.4000000000000004,
+        "T3": 2.9000000000000004,
+        "T4": 2.5
+      }
+    },
+    {
+      "printKey": "OFFSET",
+      "location": "Full Offset Print",
+      "widthIn": 4.5,
+      "heightIn": 10,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 1.5103743774032237,
+      "prices": {
+        "T1": 3.6,
+        "T2": 3.1500000000000004,
+        "T3": 2.7,
+        "T4": 2.35
+      }
+    },
+    {
+      "printKey": "OFFSET",
+      "location": "Full Offset Print",
+      "widthIn": 4.5,
+      "heightIn": 10,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 1.3979170710059172,
+      "prices": {
+        "T1": 3.35,
+        "T2": 2.95,
+        "T3": 2.5,
+        "T4": 2.2
+      }
+    },
+    {
+      "printKey": "YOKE",
+      "location": "Yoke Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 1.6098104043392505,
+      "prices": {
+        "T1": 3.85,
+        "T2": 3.4000000000000004,
+        "T3": 2.9000000000000004,
+        "T4": 2.5
+      }
+    },
+    {
+      "printKey": "YOKE",
+      "location": "Yoke Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 1.3868802968123688,
+      "prices": {
+        "T1": 3.35,
+        "T2": 2.9000000000000004,
+        "T3": 2.5,
+        "T4": 2.15
+      }
+    },
+    {
+      "printKey": "YOKE",
+      "location": "Yoke Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 1.2211992932281392,
+      "prices": {
+        "T1": 2.95,
+        "T2": 2.5500000000000003,
+        "T3": 2.2,
+        "T4": 1.9000000000000001
+      }
+    },
+    {
+      "printKey": "YOKE",
+      "location": "Yoke Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 1.0268937376725837,
+      "prices": {
+        "T1": 2.45,
+        "T2": 2.15,
+        "T3": 1.85,
+        "T4": 1.6
+      }
+    },
+    {
+      "printKey": "YOKE",
+      "location": "Yoke Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 0.9343474413762876,
+      "prices": {
+        "T1": 2.25,
+        "T2": 1.9500000000000002,
+        "T3": 1.7000000000000002,
+        "T4": 1.4500000000000002
+      }
+    },
+    {
+      "printKey": "YOKE",
+      "location": "Yoke Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 0.8584491206953582,
+      "prices": {
+        "T1": 2.0500000000000003,
+        "T2": 1.8,
+        "T3": 1.55,
+        "T4": 1.35
+      }
+    },
+    {
+      "printKey": "YOKE",
+      "location": "Yoke Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 0.7018970710059171,
+      "prices": {
+        "T1": 1.7000000000000002,
+        "T2": 1.5,
+        "T3": 1.3,
+        "T4": 1.1
+      }
+    },
+    {
+      "printKey": "YOKE",
+      "location": "Yoke Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 0.5939370710059172,
+      "prices": {
+        "T1": 1.4500000000000002,
+        "T2": 1.25,
+        "T3": 1.1,
+        "T4": 0.9500000000000001
+      }
+    },
+    {
+      "printKey": "SLEEVE",
+      "location": "Sleeve Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 1.6098104043392505,
+      "prices": {
+        "T1": 3.85,
+        "T2": 3.4000000000000004,
+        "T3": 2.9000000000000004,
+        "T4": 2.5
+      }
+    },
+    {
+      "printKey": "SLEEVE",
+      "location": "Sleeve Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 1.3868802968123688,
+      "prices": {
+        "T1": 3.35,
+        "T2": 2.9000000000000004,
+        "T3": 2.5,
+        "T4": 2.15
+      }
+    },
+    {
+      "printKey": "SLEEVE",
+      "location": "Sleeve Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 1.2211992932281392,
+      "prices": {
+        "T1": 2.95,
+        "T2": 2.5500000000000003,
+        "T3": 2.2,
+        "T4": 1.9000000000000001
+      }
+    },
+    {
+      "printKey": "SLEEVE",
+      "location": "Sleeve Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 1.0268937376725837,
+      "prices": {
+        "T1": 2.45,
+        "T2": 2.15,
+        "T3": 1.85,
+        "T4": 1.6
+      }
+    },
+    {
+      "printKey": "SLEEVE",
+      "location": "Sleeve Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 0.9343474413762876,
+      "prices": {
+        "T1": 2.25,
+        "T2": 1.9500000000000002,
+        "T3": 1.7000000000000002,
+        "T4": 1.4500000000000002
+      }
+    },
+    {
+      "printKey": "SLEEVE",
+      "location": "Sleeve Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 0.8584491206953582,
+      "prices": {
+        "T1": 2.0500000000000003,
+        "T2": 1.8,
+        "T3": 1.55,
+        "T4": 1.35
+      }
+    },
+    {
+      "printKey": "SLEEVE",
+      "location": "Sleeve Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 0.7018970710059171,
+      "prices": {
+        "T1": 1.7000000000000002,
+        "T2": 1.5,
+        "T3": 1.3,
+        "T4": 1.1
+      }
+    },
+    {
+      "printKey": "SLEEVE",
+      "location": "Sleeve Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 0.5939370710059172,
+      "prices": {
+        "T1": 1.4500000000000002,
+        "T2": 1.25,
+        "T3": 1.1,
+        "T4": 0.9500000000000001
+      }
+    },
+    {
+      "printKey": "SLEEVE_VERTICAL",
+      "location": "Vertical Sleeve Print",
+      "widthIn": 4,
+      "heightIn": 12,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 3.5256437376725835,
+      "prices": {
+        "T1": 8.4,
+        "T2": 7.3500000000000005,
+        "T3": 6.300000000000001,
+        "T4": 5.45
+      }
+    },
+    {
+      "printKey": "SLEEVE_VERTICAL",
+      "location": "Vertical Sleeve Print",
+      "widthIn": 4,
+      "heightIn": 12,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 2.8855155325443786,
+      "prices": {
+        "T1": 6.9,
+        "T2": 6.050000000000001,
+        "T3": 5.2,
+        "T4": 4.45
+      }
+    },
+    {
+      "printKey": "SLEEVE_VERTICAL",
+      "location": "Vertical Sleeve Print",
+      "widthIn": 4,
+      "heightIn": 12,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 2.6931437376725835,
+      "prices": {
+        "T1": 6.45,
+        "T2": 5.65,
+        "T3": 4.8500000000000005,
+        "T4": 4.15
+      }
+    },
+    {
+      "printKey": "SLEEVE_VERTICAL",
+      "location": "Vertical Sleeve Print",
+      "widthIn": 4,
+      "heightIn": 12,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 2.4227270710059168,
+      "prices": {
+        "T1": 5.800000000000001,
+        "T2": 5.050000000000001,
+        "T3": 4.3500000000000005,
+        "T4": 3.75
+      }
+    },
+    {
+      "printKey": "SLEEVE_VERTICAL",
+      "location": "Vertical Sleeve Print",
+      "widthIn": 4,
+      "heightIn": 12,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 1.9575881821170282,
+      "prices": {
+        "T1": 4.7,
+        "T2": 4.1000000000000005,
+        "T3": 3.5,
+        "T4": 3.0500000000000003
+      }
+    },
+    {
+      "printKey": "SLEEVE_VERTICAL",
+      "location": "Vertical Sleeve Print",
+      "widthIn": 4,
+      "heightIn": 12,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 1.5464770710059172,
+      "prices": {
+        "T1": 3.7,
+        "T2": 3.25,
+        "T3": 2.8000000000000003,
+        "T4": 2.4000000000000004
+      }
+    },
+    {
+      "printKey": "SLEEVE_VERTICAL",
+      "location": "Vertical Sleeve Print",
+      "widthIn": 4,
+      "heightIn": 12,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 1.4778570710059173,
+      "prices": {
+        "T1": 3.5500000000000003,
+        "T2": 3.1,
+        "T3": 2.6500000000000004,
+        "T4": 2.3000000000000003
+      }
+    },
+    {
+      "printKey": "SLEEVE_VERTICAL",
+      "location": "Vertical Sleeve Print",
+      "widthIn": 4,
+      "heightIn": 12,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 1.3718770710059174,
+      "prices": {
+        "T1": 3.3000000000000003,
+        "T2": 2.9000000000000004,
+        "T3": 2.45,
+        "T4": 2.15
+      }
+    },
+    {
+      "printKey": "BOTTOM",
+      "location": "Bottom / Thigh Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 1.6098104043392505,
+      "prices": {
+        "T1": 3.85,
+        "T2": 3.4000000000000004,
+        "T3": 2.9000000000000004,
+        "T4": 2.5
+      }
+    },
+    {
+      "printKey": "BOTTOM",
+      "location": "Bottom / Thigh Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 1.3868802968123688,
+      "prices": {
+        "T1": 3.35,
+        "T2": 2.9000000000000004,
+        "T3": 2.5,
+        "T4": 2.15
+      }
+    },
+    {
+      "printKey": "BOTTOM",
+      "location": "Bottom / Thigh Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 1.2211992932281392,
+      "prices": {
+        "T1": 2.95,
+        "T2": 2.5500000000000003,
+        "T3": 2.2,
+        "T4": 1.9000000000000001
+      }
+    },
+    {
+      "printKey": "BOTTOM",
+      "location": "Bottom / Thigh Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 1.0268937376725837,
+      "prices": {
+        "T1": 2.45,
+        "T2": 2.15,
+        "T3": 1.85,
+        "T4": 1.6
+      }
+    },
+    {
+      "printKey": "BOTTOM",
+      "location": "Bottom / Thigh Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 0.9343474413762876,
+      "prices": {
+        "T1": 2.25,
+        "T2": 1.9500000000000002,
+        "T3": 1.7000000000000002,
+        "T4": 1.4500000000000002
+      }
+    },
+    {
+      "printKey": "BOTTOM",
+      "location": "Bottom / Thigh Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 0.8584491206953582,
+      "prices": {
+        "T1": 2.0500000000000003,
+        "T2": 1.8,
+        "T3": 1.55,
+        "T4": 1.35
+      }
+    },
+    {
+      "printKey": "BOTTOM",
+      "location": "Bottom / Thigh Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 0.7018970710059171,
+      "prices": {
+        "T1": 1.7000000000000002,
+        "T2": 1.5,
+        "T3": 1.3,
+        "T4": 1.1
+      }
+    },
+    {
+      "printKey": "BOTTOM",
+      "location": "Bottom / Thigh Print",
+      "widthIn": 3.5,
+      "heightIn": 3.5,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 0.5939370710059172,
+      "prices": {
+        "T1": 1.4500000000000002,
+        "T2": 1.25,
+        "T3": 1.1,
+        "T4": 0.9500000000000001
+      }
+    },
+    {
+      "printKey": "THIGH_VERTICAL",
+      "location": "Vertical Thigh Print",
+      "widthIn": 4,
+      "heightIn": 6.5,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 2.505227071005917,
+      "prices": {
+        "T1": 6,
+        "T2": 5.25,
+        "T3": 4.5,
+        "T4": 3.9000000000000004
+      }
+    },
+    {
+      "printKey": "THIGH_VERTICAL",
+      "location": "Vertical Thigh Print",
+      "widthIn": 4,
+      "heightIn": 6.5,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 1.7348104043392505,
+      "prices": {
+        "T1": 4.15,
+        "T2": 3.6500000000000004,
+        "T3": 3.1,
+        "T4": 2.7
+      }
+    },
+    {
+      "printKey": "THIGH_VERTICAL",
+      "location": "Vertical Thigh Print",
+      "widthIn": 4,
+      "heightIn": 6.5,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 1.6566599978351855,
+      "prices": {
+        "T1": 3.95,
+        "T2": 3.5,
+        "T3": 3,
+        "T4": 2.5500000000000003
+      }
+    },
+    {
+      "printKey": "THIGH_VERTICAL",
+      "location": "Vertical Thigh Print",
+      "widthIn": 4,
+      "heightIn": 6.5,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 1.5661339337510154,
+      "prices": {
+        "T1": 3.75,
+        "T2": 3.3000000000000003,
+        "T3": 2.8000000000000003,
+        "T4": 2.45
+      }
+    },
+    {
+      "printKey": "THIGH_VERTICAL",
+      "location": "Vertical Thigh Print",
+      "widthIn": 4,
+      "heightIn": 6.5,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 1.4435604043392505,
+      "prices": {
+        "T1": 3.45,
+        "T2": 3.0500000000000003,
+        "T3": 2.6,
+        "T4": 2.25
+      }
+    },
+    {
+      "printKey": "THIGH_VERTICAL",
+      "location": "Vertical Thigh Print",
+      "widthIn": 4,
+      "heightIn": 6.5,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 1.096615959894806,
+      "prices": {
+        "T1": 2.6500000000000004,
+        "T2": 2.3000000000000003,
+        "T3": 2,
+        "T4": 1.7000000000000002
+      }
+    },
+    {
+      "printKey": "THIGH_VERTICAL",
+      "location": "Vertical Thigh Print",
+      "widthIn": 4,
+      "heightIn": 6.5,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 0.9448311635326077,
+      "prices": {
+        "T1": 2.25,
+        "T2": 2,
+        "T3": 1.7000000000000002,
+        "T4": 1.5
+      }
+    },
+    {
+      "printKey": "THIGH_VERTICAL",
+      "location": "Vertical Thigh Print",
+      "widthIn": 4,
+      "heightIn": 6.5,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 0.8759170710059172,
+      "prices": {
+        "T1": 2.1,
+        "T2": 1.85,
+        "T3": 1.6,
+        "T4": 1.35
+      }
+    },
+    {
+      "printKey": "BUNDLE_TOP",
+      "location": "Standard Bundle Top",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "12-23",
+      "minQty": 12,
+      "maxQty": 23,
+      "cogsPerPiece": 5.191477071005917,
+      "prices": {
+        "T1": 12.4,
+        "T2": 10.850000000000001,
+        "T3": 9.3,
+        "T4": 8
+      }
+    },
+    {
+      "printKey": "BUNDLE_TOP",
+      "location": "Standard Bundle Top",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "24-35",
+      "minQty": 24,
+      "maxQty": 35,
+      "cogsPerPiece": 4.651477071005917,
+      "prices": {
+        "T1": 11.100000000000001,
+        "T2": 9.700000000000001,
+        "T3": 8.35,
+        "T4": 7.2
+      }
+    },
+    {
+      "printKey": "BUNDLE_TOP",
+      "location": "Standard Bundle Top",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "36-47",
+      "minQty": 36,
+      "maxQty": 47,
+      "cogsPerPiece": 3.721199293228139,
+      "prices": {
+        "T1": 8.9,
+        "T2": 7.800000000000001,
+        "T3": 6.65,
+        "T4": 5.75
+      }
+    },
+    {
+      "printKey": "BUNDLE_TOP",
+      "location": "Standard Bundle Top",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "48-71",
+      "minQty": 48,
+      "maxQty": 71,
+      "cogsPerPiece": 3.467898639633368,
+      "prices": {
+        "T1": 8.3,
+        "T2": 7.25,
+        "T3": 6.2,
+        "T4": 5.3500000000000005
+      }
+    },
+    {
+      "printKey": "BUNDLE_TOP",
+      "location": "Standard Bundle Top",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "72-143",
+      "minQty": 72,
+      "maxQty": 143,
+      "cogsPerPiece": 3.007177071005917,
+      "prices": {
+        "T1": 7.2,
+        "T2": 6.300000000000001,
+        "T3": 5.4,
+        "T4": 4.65
+      }
+    },
+    {
+      "printKey": "BUNDLE_TOP",
+      "location": "Standard Bundle Top",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "144-249",
+      "minQty": 144,
+      "maxQty": 249,
+      "cogsPerPiece": 2.8179368025495415,
+      "prices": {
+        "T1": 6.75,
+        "T2": 5.9,
+        "T3": 5.050000000000001,
+        "T4": 4.3500000000000005
+      }
+    },
+    {
+      "printKey": "BUNDLE_TOP",
+      "location": "Standard Bundle Top",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "250-499",
+      "minQty": 250,
+      "maxQty": 499,
+      "cogsPerPiece": 2.620042644776409,
+      "prices": {
+        "T1": 6.25,
+        "T2": 5.5,
+        "T3": 4.7,
+        "T4": 4.05
+      }
+    },
+    {
+      "printKey": "BUNDLE_TOP",
+      "location": "Standard Bundle Top",
+      "widthIn": 10,
+      "heightIn": 10,
+      "tier": "500+",
+      "minQty": 500,
+      "maxQty": 500,
+      "cogsPerPiece": 2.523857071005917,
+      "prices": {
+        "T1": 6.050000000000001,
+        "T2": 5.300000000000001,
+        "T3": 4.55,
+        "T4": 3.9000000000000004
+      }
+    }
+  ]
+}

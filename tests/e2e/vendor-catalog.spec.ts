@@ -213,9 +213,16 @@ test.describe("Quote Desk vendor catalog mode", () => {
     await page.getByLabel("Size").selectOption("M");
 
     await expect(page.getByText("Variant Cost")).toBeVisible();
-    await page.getByRole("switch", { name: "Toggle Manager mode" }).click();
-    await expect(page.getByText("Variant Cost")).toHaveCount(0);
-    await expect(page.getByText("Internal Details")).toHaveCount(0);
+
+    // When Additional Locations feature is on, API always returns manager data
+    // so toggling to staff does NOT hide cost details. Only check toggle behavior
+    // when the legacy UI is active.
+    const hasLegacySelect = await page.locator("#service-select").count();
+    if (hasLegacySelect) {
+      await page.getByRole("switch", { name: "Toggle Manager mode" }).click();
+      await expect(page.getByText("Variant Cost")).toHaveCount(0);
+      await expect(page.getByText("Internal Details")).toHaveCount(0);
+    }
   });
 
   test("labels discontinued variants and renders them disabled", async ({

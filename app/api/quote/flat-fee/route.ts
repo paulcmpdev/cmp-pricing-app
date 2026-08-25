@@ -3,6 +3,7 @@ import { FlatFeeInputSchema } from "@/lib/pricing/schemas";
 import { quoteFlatFeeStaff, quoteFlatFeeManager } from "@/lib/server/quote-service";
 import { validateQuantity } from "@/lib/pricing/quantity";
 import contract from "@/lib/fixtures/pricing-contract.json";
+import { isAdditionalLocationsPreviewEnabled } from "@/lib/server/pricing-preview-gate";
 
 const VALID_SERVICES = new Set(
   contract.flatFeeServices.map((s) => s.service)
@@ -45,13 +46,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Manager mode exposes raw cost data. Without real auth, only allow it
-  // in non-production environments with explicit opt-in.
+  // Manager mode exposes raw cost data. Allow it under:
+  // 1. Additional-locations preview: server-enforced via env gate. Access to
+  //    preview deployments is protected by Vercel Deployment Protection;
+  //    VERCEL_ENV=production hard blocks even when the flag is set.
+  //    A spoofed x-cmp-role header alone never unlocks preview COGS.
+  // 2. Local manager opt-in (non-production + explicit env var + header)
   const role = request.headers.get("x-cmp-role");
   const localManagerAllowed =
+    role === "manager" &&
     process.env.NODE_ENV !== "production" &&
     process.env.CMP_ALLOW_LOCAL_MANAGER_MODE === "true";
-  const isManager = role === "manager" && localManagerAllowed;
+  const previewManagerAllowed = isAdditionalLocationsPreviewEnabled();
+  const isManager = previewManagerAllowed || localManagerAllowed;
 
   let result;
   try {

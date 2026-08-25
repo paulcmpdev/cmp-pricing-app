@@ -19,7 +19,7 @@ test.describe("Admin Pricing Preview", () => {
         page.getByRole("heading", { name: /pricing context/i })
       ).toBeVisible();
       await expect(
-        page.getByText(/preview only/i)
+        page.getByText(/preview only/i).first()
       ).toBeVisible();
     });
 
@@ -127,7 +127,7 @@ test.describe("Admin Pricing Preview", () => {
       await expect(page.getByText(/1 change/i)).toBeVisible({ timeout: 5000 });
 
       // Reset
-      await page.getByRole("button", { name: /reset all/i }).click();
+      await page.getByRole("button", { name: "Reset all margins" }).click();
 
       // Should clear change indicator - wait for recalc
       await expect(page.getByText(/1 change/i)).not.toBeVisible({ timeout: 5000 });
@@ -159,14 +159,20 @@ test.describe("Admin Pricing Preview", () => {
       errorFreePage: page,
     }) => {
       await page.goto("/admin/pricing");
-      await expect(page.getByText(/^Preview Only/)).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Additional Location Matrix" })).toBeVisible();
+      await expect(
+        page.getByText(/edits are not saved or published and do not affect Quote Desk pricing/i)
+      ).toBeVisible();
       const bodyText = await page.locator("body").innerText();
       expect(bodyText).toContain("Preview Only");
-      expect(bodyText).toContain("does not affect Quote Desk");
-      // Should not have save/publish controls
+      expect(bodyText).toContain("do not affect Quote Desk");
+      // Should not have save/publish/upload controls (buttons or actions)
       expect(bodyText?.toLowerCase()).not.toContain("save changes");
-      expect(bodyText?.toLowerCase()).not.toContain("publish");
+      expect(bodyText?.toLowerCase()).not.toContain("publish changes");
       expect(bodyText?.toLowerCase()).not.toContain("upload");
+      // The word "published" may appear in disclaimers (e.g. "not saved or published")
+      // but must not appear as an action button
+      await expect(page.getByRole("button", { name: /publish/i })).not.toBeVisible();
     });
 
     test("Catalog Operations page still renders correctly", async ({

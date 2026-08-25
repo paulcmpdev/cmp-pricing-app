@@ -63,7 +63,7 @@ Current tiers cover quantities 1 through 5,000. Quantities above 5,000 require m
 
 ### Margin Lane
 
-One of four pricing-policy columns used for DTF decoration prices.
+One of four decoration gross-margin pricing-policy columns used to calculate DTF decoration selling prices.
 
 Current policy:
 
@@ -74,7 +74,7 @@ Current policy:
 | T3 | 40% | Future authenticated Manager/Admin override |
 | T4 | 35% | Future authenticated Manager/Admin override |
 
-A margin lane is not an Impress operating mode.
+A margin lane is not an Impress operating mode. Post-commission contribution margin is calculated and displayed after pricing; it does not set the matrix price.
 
 ### Calculated Tier Price
 
@@ -117,6 +117,24 @@ An import must never publish automatically.
 - A Draft Preview is based on one active Pricing Contract.
 - A future published Pricing Version must be immutable and atomically activated.
 - A customer quote must eventually record the Pricing Version used to calculate it.
+
+## Additional Locations
+
+### Base Decoration
+
+The included first DTF placement represented by Quote Desk’s `Decoration Sell` and `Base Decoration COGS`.
+
+### Additional Location
+
+A full-quantity, per-item service selected from the existing nine approved flat-fee services. Quote Desk may contain multiple Additional Locations. Each service keeps its current engine price, policy floor, manual override, and COGS calculation.
+
+`Additional Location` replaces the user-facing term `Add-On Service`; it does not replace the internal flat-fee pricing engine.
+
+### Additional Location Matrix
+
+A separate workbook-derived matrix containing 13 print/location types, eight quantity tiers, COGS per piece, and T1–T4 prices. Its global lane margins are T1 58%, T2 52%, T3 44%, and T4 35%.
+
+The Additional Location Matrix is not the nine-service flat-fee menu used by Quote Desk. In v1 it is a protected, session-only Admin preview and does not publish changes.
 
 ## Lifecycle
 
