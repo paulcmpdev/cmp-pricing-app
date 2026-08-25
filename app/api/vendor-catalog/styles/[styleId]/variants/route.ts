@@ -3,11 +3,15 @@ import {
   getVendorCatalogStatus,
   getVendorCatalogStyleVariants,
 } from "@/lib/server/vendor-catalog/repository";
+import { requireRole } from "@/lib/server/auth/route-guards";
 
 export async function GET(
-  _request: NextRequest,
-  { params }: { params: { styleId: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ styleId: string }> }
 ) {
+  const authError = await requireRole(request, "view_quotes");
+  if (authError) return authError;
+
   const status = await getVendorCatalogStatus();
   if (!status.available) {
     return NextResponse.json(
@@ -21,7 +25,8 @@ export async function GET(
     );
   }
 
-  const styleId = decodeURIComponent(params.styleId);
+  const { styleId: encodedStyleId } = await params;
+  const styleId = decodeURIComponent(encodedStyleId);
   return NextResponse.json({
     available: true,
     variants: await getVendorCatalogStyleVariants(styleId),

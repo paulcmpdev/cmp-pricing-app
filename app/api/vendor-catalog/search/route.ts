@@ -4,6 +4,7 @@ import {
   getVendorCatalogStatus,
   searchVendorCatalogStyles,
 } from "@/lib/server/vendor-catalog/repository";
+import { requireRole } from "@/lib/server/auth/route-guards";
 
 const SearchParamsSchema = z.object({
   q: z.string().transform((value) => value.trim()),
@@ -11,6 +12,9 @@ const SearchParamsSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
+  const authError = await requireRole(request, "view_quotes");
+  if (authError) return authError;
+
   const parsed = SearchParamsSchema.safeParse({
     q: request.nextUrl.searchParams.get("q") ?? "",
     vendor: request.nextUrl.searchParams.get("vendor") ?? "all",

@@ -1,6 +1,8 @@
 import { getCatalogEntries } from "@/lib/server/catalog";
 import { isAdditionalLocationsPreviewEnabled } from "@/lib/server/pricing-preview-gate";
 import QuoteDeskClient from "./concepts/quote-desk/QuoteDeskClient";
+import UserMenu from "@/lib/client/auth/UserMenu";
+import { isAuthEnabled } from "@/lib/server/auth/policy";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -13,6 +15,7 @@ export const dynamic = "force-dynamic";
 export default function RootPage() {
   const catalog = getCatalogEntries();
   const additionalLocationsEnabled = isAdditionalLocationsPreviewEnabled();
+  const authEnabled = isAuthEnabled();
 
   return (
     <div className="min-h-screen flex flex-col bg-cmp-surface">
@@ -30,12 +33,16 @@ export default function RootPage() {
             QUOTE DESK
           </h1>
         </div>
-        <Link
-          href="/admin"
-          className="text-xs text-cmp-gray hover:text-cmp-cyan transition-colors"
-        >
-          Admin
-        </Link>
+        {authEnabled ? (
+          <UserMenu showAdminLink />
+        ) : (
+          <Link
+            href="/admin"
+            className="text-xs text-cmp-gray hover:text-cmp-cyan transition-colors"
+          >
+            Admin
+          </Link>
+        )}
         <Image
           src="/brand/logo-dark.png"
           alt="Compound Sportswear"

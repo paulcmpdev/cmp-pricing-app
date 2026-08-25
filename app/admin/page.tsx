@@ -1,5 +1,8 @@
 import { getAdminCatalogOverview } from "@/lib/server/vendor-catalog/repository";
-import { isPricingPreviewEnabled } from "@/lib/server/pricing-preview-gate";
+import {
+  isAuthenticatedProductionFeaturesEnabled,
+  isPricingPreviewEnabled,
+} from "@/lib/server/pricing-preview-gate";
 import AdminHeader from "./_components/AdminHeader";
 import AdminDashboard from "./_components/AdminDashboard";
 
@@ -17,6 +20,7 @@ export default async function AdminPage() {
       <AdminHeader
         activeSection="catalog"
         pricingPreviewEnabled={isPricingPreviewEnabled()}
+        authenticatedProduction={isAuthenticatedProductionFeaturesEnabled()}
       />
       <main className="flex-1 px-4 py-5 max-w-6xl mx-auto w-full">
         <AdminDashboard overview={overview} />

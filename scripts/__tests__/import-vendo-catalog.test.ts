@@ -14,7 +14,7 @@ function sqlBlock(name: string): string {
 }
 
 describe("Vendo catalog importer contract", () => {
-  it("uses a Node 20-compatible SQLite adapter instead of node:sqlite", () => {
+  it("uses the portable better-sqlite3 adapter instead of node:sqlite", () => {
     expect(source).not.toContain("node:sqlite");
     expect(source).toContain("better-sqlite3");
   });

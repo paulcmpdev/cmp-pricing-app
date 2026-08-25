@@ -44,7 +44,9 @@ describe("admin pricing preview API", () => {
     delete env.VERCEL_ENV;
     delete env.CMP_ENABLE_PRICING_PREVIEW;
 
-    const getResponse = await GET();
+    const getResponse = await GET(
+      request("http://localhost/api/admin/pricing/preview")
+    );
     expect(getResponse.status).toBe(404);
 
     const postResponse = await POST(
@@ -62,7 +64,9 @@ describe("admin pricing preview API", () => {
     delete env.VERCEL_ENV;
     env.CMP_ENABLE_PRICING_PREVIEW = "true";
 
-    const getResponse = await GET();
+    const getResponse = await GET(
+      request("http://localhost/api/admin/pricing/preview")
+    );
     expect(getResponse.status).toBe(200);
     const baseline = await getResponse.json();
     expect(baseline.schemaVersion).toBe("1.0.0");

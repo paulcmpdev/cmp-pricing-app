@@ -4,7 +4,7 @@ Local, greenfield pricing application for Compound Sportswear. The verified pric
 
 ## Status
 
-Local MVP only. **Do not deploy or share externally.** Manager mode is an evaluation convenience and is not authenticated.
+Production-ready with Google Workspace authentication. When `CMP_AUTH_ENABLED=true`, all access requires a verified `@cmpsportswear.com` Google account. Server-derived roles (admin, manager, sales_rep) control quote projection visibility and admin access.
 
 ## Run locally
 
@@ -75,11 +75,33 @@ python3 /Users/paulsanford/Downloads/CMP_Pricing_App_Claude_Packet/source/valida
 
 Staff responses contain customer-facing quote outputs only. Raw product cost, wages, COGS, pooled policy, and manager internals remain server-side and are omitted from Staff responses and static browser bundles.
 
-## Deployment blocker
+## Authentication and authorization
 
-Manager mode currently uses the client-controlled `x-cmp-role` request header. This is deliberate for local evaluation, but it is **not authorization**. Any shared deployment must add authenticated server-side role enforcement and deployment protection before Manager responses can be exposed.
+When `CMP_AUTH_ENABLED=true` (production):
 
-Do not deploy until Paul explicitly approves both the protection model and deployment.
+- Google OAuth via `next-auth` v4 with JWT sessions. No user database.
+- Only verified `@cmpsportswear.com` email addresses may sign in.
+- Roles derived server-side from `CMP_ADMIN_EMAILS` and `CMP_MANAGER_EMAILS` env vars.
+- `x-cmp-role` header is ignored; roles come exclusively from the JWT session.
+- Sales reps see Staff quote projections only (no cost, COGS, wages, commission, or contribution data).
+- Managers and admins see Manager projections with internal COGS and provenance.
+- Admin pages (`/admin/**`) and admin APIs (`/api/admin/**`) require the admin role.
+- Middleware redirects unauthenticated page requests to `/login`; API requests get 401 JSON.
+- Server route guards remain authoritative even if middleware is bypassed.
+
+When `CMP_AUTH_ENABLED` is absent (local dev, preview without auth):
+
+- All pages and APIs are accessible without authentication.
+- Legacy `x-cmp-role` header and `CMP_ALLOW_LOCAL_MANAGER_MODE` behavior is preserved.
+- Protected Vercel Preview retains its existing preview projection behavior.
+
+### Production feature flags
+
+Admin Pricing and Additional Locations run in Vercel Production only when all are true:
+
+- `CMP_AUTH_ENABLED=true`
+- `CMP_ENABLE_AUTHENTICATED_PRODUCTION_FEATURES=true`
+- The individual feature flag (`CMP_ENABLE_PRICING_PREVIEW`, `CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW`)
 
 ## Source authority
 

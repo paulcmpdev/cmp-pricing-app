@@ -9,7 +9,7 @@ export default defineConfig({
     globals: true,
     environment: "node",
     setupFiles: ["./vitest.setup.ts"],
-    exclude: ["tests/e2e/**", "node_modules/**"],
+    exclude: ["tests/e2e/**", "tests/auth-e2e/**", "node_modules/**"],
   },
   resolve: {
     alias: {

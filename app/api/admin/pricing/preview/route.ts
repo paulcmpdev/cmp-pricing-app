@@ -6,6 +6,7 @@ import {
   calculateQuoteImpactPreview,
 } from "@/lib/pricing/dtf-margin-preview";
 import { isPricingPreviewEnabled } from "@/lib/server/pricing-preview-gate";
+import { requireRole } from "@/lib/server/auth/route-guards";
 
 const MAX_BODY_BYTES = 16_384;
 
@@ -100,7 +101,10 @@ function concatChunks(chunks: Uint8Array[], totalBytes: number) {
   return body;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authError = await requireRole(request, "admin_access");
+  if (authError) return authError;
+
   if (!isPricingPreviewEnabled()) {
     return disabledResponse();
   }
@@ -109,6 +113,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const authError = await requireRole(request, "admin_access");
+  if (authError) return authError;
+
   if (!isPricingPreviewEnabled()) {
     return disabledResponse();
   }

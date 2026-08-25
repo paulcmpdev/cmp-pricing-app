@@ -606,7 +606,6 @@ export default function QuoteDeskClient({
       }
     }
     return () => timers.forEach(clearTimeout);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [additionalLocations, calculateLocationQuote, additionalLocationsEnabled]);
 
   // --- Derived ---

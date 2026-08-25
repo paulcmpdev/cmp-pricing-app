@@ -384,11 +384,11 @@ describe("PostgreSQL catalog import safety", () => {
     expect(source).not.toContain("readFileSync(sqlitePath)");
   });
 
-  it("package.json pins engines.node to 20.x (better-sqlite3 ABI compatibility)", () => {
+  it("package.json pins engines.node to 22.x (better-sqlite3 ABI compatibility)", () => {
     const pkg = JSON.parse(
       readFileSync(resolve(process.cwd(), "package.json"), "utf8")
     );
-    expect(pkg.engines.node).toBe("20.x");
+    expect(pkg.engines.node).toBe("22.x");
   });
 });
 

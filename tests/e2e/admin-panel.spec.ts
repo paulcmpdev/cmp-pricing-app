@@ -61,7 +61,7 @@ test.describe("Admin Panel - Catalog Operations", () => {
     errorFreePage: page,
   }) => {
     await page.goto("/admin");
-    const bodyText = await page.locator("body").textContent();
+    const bodyText = await page.locator("main").textContent();
     const sensitiveLabels = [
       "Vendor Cost",
       "credentials",

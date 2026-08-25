@@ -1,6 +1,7 @@
 import React from "react";
 import Image from "next/image";
 import Link from "next/link";
+import UserMenu from "@/lib/client/auth/UserMenu";
 
 const SECTION_TITLES = {
   catalog: "CATALOG OPERATIONS",
@@ -10,13 +11,19 @@ const SECTION_TITLES = {
 export default function AdminHeader({
   activeSection,
   pricingPreviewEnabled,
+  authenticatedProduction = false,
 }: {
   activeSection: "catalog" | "pricing";
   pricingPreviewEnabled: boolean;
+  authenticatedProduction?: boolean;
 }) {
-  const previewStatus = activeSection === "pricing"
-    ? "Private preview · Session only"
-    : "Private preview · Read-only";
+  const previewStatus = authenticatedProduction
+    ? activeSection === "pricing"
+      ? "Authenticated production · Session only"
+      : "Authenticated production · Read-only"
+    : activeSection === "pricing"
+      ? "Private preview · Session only"
+      : "Private preview · Read-only";
 
   return (
     <>
@@ -52,6 +59,7 @@ export default function AdminHeader({
           </nav>
         </div>
         <div className="flex items-center gap-3">
+          <UserMenu />
           <span className="text-[10px] uppercase tracking-wider text-neutral-400 hidden sm:inline">
             {previewStatus}
           </span>

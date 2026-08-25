@@ -103,7 +103,7 @@ function configuredPostgresUrl(): string | undefined {
 
 function withSqliteDb<T>(fn: (db: DatabaseSyncLike) => T): T | undefined {
   const path = configuredSqlitePath();
-  if (!path || !existsSync(path)) return undefined;
+  if (!path || !existsSync(/* turbopackIgnore: true */ path)) return undefined;
   const db = openSqliteDatabase(path, { readonly: true });
   try {
     return fn(db);
@@ -178,7 +178,7 @@ export async function getVendorCatalogStatus(): Promise<VendorCatalogStatus> {
         "Neither VENDOR_CATALOG_DATABASE_URL nor VENDOR_CATALOG_DB_PATH is configured.",
     };
   }
-  if (!existsSync(path)) {
+  if (!existsSync(/* turbopackIgnore: true */ path)) {
     return {
       available: false,
       backend: "sqlite",
