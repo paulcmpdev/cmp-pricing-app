@@ -225,6 +225,87 @@ test.describe("Quote Desk vendor catalog mode", () => {
     }
   });
 
+  test("orders SanMar apparel sizes from smallest to largest", async ({
+    errorFreePage: page,
+  }) => {
+    await page.unroute("**/api/vendor-catalog/search**");
+    await page.unroute("**/api/vendor-catalog/styles/*/variants");
+    await page.route("**/api/vendor-catalog/search**", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          available: true,
+          results: [
+            {
+              id: "sanmar:ST400",
+              vendor: "sanmar",
+              styleCode: "ST400",
+              brand: "Sport-Tek",
+              name: "PosiCharge Tri-Blend Raglan Tee",
+              category: "T-Shirts",
+              description: null,
+              imageUrl: null,
+              activeVariantCount: 8,
+              sourceSyncAt: "2026-08-24T17:59:01.971Z",
+            },
+          ],
+        }),
+      });
+    });
+    const liveSanMarOrder = [
+      ["2XL", 1],
+      ["XS", 1],
+      ["3XL", 2],
+      ["S", 2],
+      ["4XL", 3],
+      ["M", 3],
+      ["L", 4],
+      ["XL", 5],
+    ] as const;
+    await page.route("**/api/vendor-catalog/styles/*/variants", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          available: true,
+          variants: liveSanMarOrder.map(([size, sizeOrder]) => ({
+            id: `sanmar:ST400-BLK-${size}`,
+            styleId: "sanmar:ST400",
+            vendor: "sanmar",
+            styleCode: "ST400",
+            color: "Black Triad Solid",
+            size,
+            sizeOrder,
+            inventoryQty: null,
+            imageUrl: null,
+            discontinued: false,
+            sourceSyncAt: "2026-08-24T17:59:01.971Z",
+          })),
+        }),
+      });
+    });
+
+    await page.goto("/concepts/quote-desk");
+    await page.getByRole("button", { name: "Vendor Catalog" }).click();
+    await page.getByLabel("Vendor", { exact: true }).selectOption("sanmar");
+    await page.getByLabel("Search vendor catalog").fill("ST400");
+    await page.getByRole("option", { name: /ST400/ }).click();
+    await page.getByLabel("Color").selectOption("Black Triad Solid");
+
+    await expect(page.locator("#vendor-size option")).toHaveText([
+      "Select size...",
+      "XS",
+      "S",
+      "M",
+      "L",
+      "XL",
+      "2XL",
+      "3XL",
+      "4XL",
+    ]);
+  });
+
   test("labels discontinued variants and renders them disabled", async ({
     errorFreePage: page,
   }) => {

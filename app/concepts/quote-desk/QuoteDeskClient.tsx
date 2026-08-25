@@ -15,6 +15,7 @@ import {
   describeVariantAvailability,
   isStaleVendorPricing,
   shouldClearItemQuoteForVendorSelectionChange,
+  sortVendorSizeVariants,
   type ProductMode,
 } from "@/lib/client/vendor-catalog-helpers";
 
@@ -611,8 +612,8 @@ export default function QuoteDeskClient({
   // --- Derived ---
   const selectedProduct = catalog.find((p) => p.sku === selectedSku);
   const vendorColors = uniqueValues(vendorVariants.map((variant) => variant.color));
-  const vendorSizes = vendorVariants.filter(
-    (variant) => variant.color === selectedVendorColor
+  const vendorSizes = sortVendorSizeVariants(
+    vendorVariants.filter((variant) => variant.color === selectedVendorColor)
   );
   const selectedVendorVariant = vendorVariants.find(
     (variant) => variant.id === selectedCatalogVariantId
