@@ -15,6 +15,7 @@ import {
   describeVariantAvailability,
   isStaleVendorPricing,
   shouldClearItemQuoteForVendorSelectionChange,
+  sortVendorSizeVariants,
   type ProductMode,
 } from "@/lib/client/vendor-catalog-helpers";
 
@@ -39,7 +40,17 @@ const FLAT_FEE_SERVICES = [
 interface Props {
   catalog: CatalogEntry[];
   mode?: "primary" | "evaluation";
+  additionalLocationsEnabled?: boolean;
 }
+
+type AdditionalLocationRow = {
+  id: string;
+  service: string;
+  quote: FlatFeeQuote | null;
+  loading: boolean;
+  error: string | null;
+  generation: number;
+};
 
 type Role = "staff" | "manager";
 type VendorFilter = "all" | "ss" | "sanmar";
@@ -72,7 +83,13 @@ function uniqueValues(values: (string | null)[]): string[] {
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props) {
+let nextLocationId = 1;
+
+export default function QuoteDeskClient({
+  catalog,
+  mode = "evaluation",
+  additionalLocationsEnabled = false,
+}: Props) {
   const isPrimary = mode === "primary";
 
   // Group catalog by category
@@ -100,6 +117,10 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
   const [selectedService, setSelectedService] = useState("");
   const [flatFeeQuantity, setFlatFeeQuantity] = useState("");
 
+  // Additional Locations (multi-row, feature-gated)
+  const [additionalLocations, setAdditionalLocations] = useState<AdditionalLocationRow[]>([]);
+  const locationAborts = useRef<Map<string, AbortController>>(new Map());
+
   // Manager edits for flat-fee
   const [extraOpMinutes, setExtraOpMinutes] = useState("0");
   const [extraDesMinutes, setExtraDesMinutes] = useState("0");
@@ -119,6 +140,66 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
   const flatFeeAbort = useRef<AbortController | null>(null);
   const vendorSearchAbort = useRef<AbortController | null>(null);
   const vendorVariantAbort = useRef<AbortController | null>(null);
+  const itemRequestToken = useRef(0);
+  const locationGenerations = useRef<Map<string, number>>(new Map());
+
+  const nextItemToken = useCallback(() => {
+    itemRequestToken.current += 1;
+    return itemRequestToken.current;
+  }, []);
+
+  const bumpLocationGeneration = useCallback((id: string) => {
+    const next = (locationGenerations.current.get(id) ?? 0) + 1;
+    locationGenerations.current.set(id, next);
+    return next;
+  }, []);
+
+  const invalidateItemQuote = useCallback(() => {
+    nextItemToken();
+    itemAbort.current?.abort();
+    itemAbort.current = null;
+    setItemQuote(null);
+    setItemLoading(false);
+    setItemError(null);
+    setManagerReviewRequired(false);
+  }, [nextItemToken]);
+
+  const invalidateAllLocations = useCallback(() => {
+    locationAborts.current.forEach((controller) => controller.abort());
+    locationAborts.current.clear();
+    setAdditionalLocations((prev) =>
+      prev.map((loc) => {
+        const generation = bumpLocationGeneration(loc.id);
+        return { ...loc, quote: null, loading: false, error: null, generation };
+      })
+    );
+  }, [bumpLocationGeneration]);
+
+  const handleQuantityChange = useCallback(
+    (value: string) => {
+      setQuantity(value);
+      invalidateItemQuote();
+      invalidateAllLocations();
+    },
+    [invalidateAllLocations, invalidateItemQuote]
+  );
+
+  useEffect(() => {
+    const locationAbortMap = locationAborts.current;
+    const locationGenerationMap = locationGenerations.current;
+    return () => {
+      nextItemToken();
+      itemAbort.current?.abort();
+      flatFeeAbort.current?.abort();
+      vendorSearchAbort.current?.abort();
+      vendorVariantAbort.current?.abort();
+      locationAbortMap.forEach((controller) => controller.abort());
+      locationGenerationMap.forEach((_generation, id) => {
+        bumpLocationGeneration(id);
+      });
+      locationAbortMap.clear();
+    };
+  }, [bumpLocationGeneration, nextItemToken]);
 
   // --- Item price calculation ---
   const calculateItem = useCallback(async () => {
@@ -141,20 +222,25 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
     itemAbort.current?.abort();
     const controller = new AbortController();
     itemAbort.current = controller;
+    const token = nextItemToken();
 
     setItemLoading(true);
     setItemError(null);
     setManagerReviewRequired(false);
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (role === "manager") {
+        headers["x-cmp-role"] = role;
+      }
       const res = await fetch("/api/quote/item", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-cmp-role": role,
-        },
+        headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      if (token !== itemRequestToken.current || itemAbort.current !== controller) return;
       if (!res.ok) {
         const err = await res.json();
         throw new Error(
@@ -162,6 +248,7 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
         );
       }
       const data = await res.json();
+      if (token !== itemRequestToken.current || itemAbort.current !== controller) return;
       if (data.requiresManagerReview && !("salesPrice" in data)) {
         setManagerReviewRequired(true);
         setItemQuote(null);
@@ -169,13 +256,19 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
         setItemQuote(data as ItemQuote);
       }
     } catch (e) {
-      if ((e as Error).name !== "AbortError") {
+      if (
+        (e as Error).name !== "AbortError" &&
+        token === itemRequestToken.current &&
+        itemAbort.current === controller
+      ) {
         setItemError((e as Error).message);
       }
     } finally {
-      setItemLoading(false);
+      if (token === itemRequestToken.current && itemAbort.current === controller) {
+        setItemLoading(false);
+      }
     }
-  }, [productMode, selectedSku, selectedCatalogVariantId, manualCost, quantity, role]);
+  }, [productMode, selectedSku, selectedCatalogVariantId, manualCost, quantity, role, nextItemToken]);
 
   useEffect(() => {
     if (productMode !== "vendor") return;
@@ -335,45 +428,260 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
     }
   }, [calculateFlatFee, selectedService]);
 
+  // --- Additional Locations helpers ---
+  const calculateLocationQuote = useCallback(async (
+    locationId: string,
+    service: string,
+    generation?: number
+  ) => {
+    if (!service) return;
+    const qty = parseStrictPositiveInt(quantity);
+    if (qty === null) return;
+    const requestedService = service;
+    const requestedQuantity = qty;
+
+    // Abort any existing request for this location
+    const existing = locationAborts.current.get(locationId);
+    existing?.abort();
+    const controller = new AbortController();
+    locationAborts.current.set(locationId, controller);
+    const requestGeneration = generation ?? bumpLocationGeneration(locationId);
+
+    setAdditionalLocations((prev) =>
+      prev.map((loc) =>
+        loc.id === locationId
+          ? { ...loc, generation: requestGeneration, loading: true, error: null }
+          : loc
+      )
+    );
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (role === "manager") {
+        headers["x-cmp-role"] = role;
+      }
+      const res = await fetch("/api/quote/flat-fee", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          service: requestedService,
+          orderQuantity: requestedQuantity,
+          extraOperatorMinutesPerShirt: 0,
+          extraDesignerMinutesPerOrder: 0,
+          manualOverride: null,
+        }),
+        signal: controller.signal,
+      });
+      if (
+        locationAborts.current.get(locationId) !== controller ||
+        locationGenerations.current.get(locationId) !== requestGeneration
+      ) {
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ? JSON.stringify(err.error) : `HTTP ${res.status}`);
+      }
+      const data: FlatFeeQuote = await res.json();
+      if (
+        locationAborts.current.get(locationId) !== controller ||
+        locationGenerations.current.get(locationId) !== requestGeneration
+      ) {
+        return;
+      }
+      setAdditionalLocations((prev) =>
+        prev.map((loc) =>
+          loc.id === locationId &&
+          loc.generation === requestGeneration &&
+          loc.service === requestedService &&
+          data.service === requestedService &&
+          data.billableQuantity === requestedQuantity
+            ? { ...loc, quote: data, loading: false, error: null }
+            : loc
+        )
+      );
+    } catch (e) {
+      if (
+        (e as Error).name !== "AbortError" &&
+        locationAborts.current.get(locationId) === controller &&
+        locationGenerations.current.get(locationId) === requestGeneration
+      ) {
+        setAdditionalLocations((prev) =>
+          prev.map((loc) =>
+            loc.id === locationId && loc.generation === requestGeneration
+              ? { ...loc, error: (e as Error).message, loading: false }
+              : loc
+          )
+        );
+      }
+    }
+  }, [quantity, role, bumpLocationGeneration]);
+
+  const addLocation = useCallback(() => {
+    const id = `loc-${nextLocationId++}`;
+    locationGenerations.current.set(id, 0);
+    setAdditionalLocations((prev) => [
+      ...prev,
+      { id, service: "", quote: null, loading: false, error: null, generation: 0 },
+    ]);
+  }, []);
+
+  const removeLocation = useCallback((id: string) => {
+    bumpLocationGeneration(id);
+    locationAborts.current.get(id)?.abort();
+    locationAborts.current.delete(id);
+    locationGenerations.current.delete(id);
+    setAdditionalLocations((prev) => prev.filter((loc) => loc.id !== id));
+  }, [bumpLocationGeneration]);
+
+  const updateLocationService = useCallback((id: string, service: string) => {
+    locationAborts.current.get(id)?.abort();
+    locationAborts.current.delete(id);
+    setAdditionalLocations((prev) =>
+      prev.map((loc) => {
+        if (loc.id !== id) return loc;
+        const generation = bumpLocationGeneration(id);
+        return { ...loc, service, quote: null, loading: false, error: null, generation };
+      })
+    );
+  }, [bumpLocationGeneration]);
+
+  // Services already selected in other rows (for duplicate prevention)
+  const selectedLocationServices = new Set(
+    additionalLocations.map((loc) => loc.service).filter(Boolean)
+  );
+
+  // Recalculate all location quotes when quantity or role changes
+  useEffect(() => {
+    if (!additionalLocationsEnabled) return;
+
+    // Collect locations that need recalculation from the closure snapshot.
+    const locationsToRecalc = additionalLocations
+      .filter((loc) => loc.service)
+      .map(({ id, service }) => ({ id, service }));
+
+    if (locationsToRecalc.length === 0) return;
+
+    // Immediately invalidate stale quotes and abort in-flight requests
+    // so no old pricing can contribute to final totals during recalculation.
+    const requestedLocations = locationsToRecalc.map(({ id, service }) => {
+      locationAborts.current.get(id)?.abort();
+      locationAborts.current.delete(id);
+      return { id, service, generation: bumpLocationGeneration(id) };
+    });
+    setAdditionalLocations((prev) =>
+      prev.map((loc) =>
+        loc.service
+          ? {
+              ...loc,
+              quote: null,
+              loading: parseStrictPositiveInt(quantity) !== null,
+              error: null,
+              generation: locationGenerations.current.get(loc.id) ?? loc.generation,
+            }
+          : loc
+      )
+    );
+
+    if (parseStrictPositiveInt(quantity) === null) return;
+
+    const timers = requestedLocations.map(({ id, service, generation }) =>
+      setTimeout(() => calculateLocationQuote(id, service, generation), 300)
+    );
+
+    return () => timers.forEach(clearTimeout);
+  // We intentionally recalc when quantity or role changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quantity, role, additionalLocationsEnabled]);
+
+  // Recalculate individual location when its service changes
+  useEffect(() => {
+    if (!additionalLocationsEnabled) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const loc of additionalLocations) {
+      if (loc.service && !loc.quote && !loc.loading) {
+        timers.push(setTimeout(() => calculateLocationQuote(loc.id, loc.service), 300));
+      }
+    }
+    return () => timers.forEach(clearTimeout);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [additionalLocations, calculateLocationQuote, additionalLocationsEnabled]);
+
   // --- Derived ---
   const selectedProduct = catalog.find((p) => p.sku === selectedSku);
   const vendorColors = uniqueValues(vendorVariants.map((variant) => variant.color));
-  const vendorSizes = vendorVariants.filter(
-    (variant) => variant.color === selectedVendorColor
+  const vendorSizes = sortVendorSizeVariants(
+    vendorVariants.filter((variant) => variant.color === selectedVendorColor)
   );
   const selectedVendorVariant = vendorVariants.find(
     (variant) => variant.id === selectedCatalogVariantId
   );
 
   const changeRole = (nextRole: Role) => {
-    itemAbort.current?.abort();
+    invalidateItemQuote();
     flatFeeAbort.current?.abort();
-    setItemQuote(null);
     setFlatFeeQuote(null);
-    setItemError(null);
     setFlatFeeError(null);
-    setManagerReviewRequired(false);
+    invalidateAllLocations();
     setRole(nextRole);
   };
 
   const changeProductMode = (nextMode: ProductMode) => {
     if (shouldClearItemQuoteForVendorSelectionChange(productMode, nextMode)) {
-      setItemQuote(null);
-      setItemError(null);
-      setManagerReviewRequired(false);
+      invalidateItemQuote();
     }
     setProductMode(nextMode);
   };
 
   const clearVendorItemQuote = () => {
-    setItemQuote(null);
-    setItemError(null);
-    setManagerReviewRequired(false);
+    invalidateItemQuote();
   };
 
-  // Order total: item total + flat-fee add-on total
-  const orderTotal =
-    (itemQuote?.salesOrderTotal ?? 0) + (flatFeeQuote?.addOnTotal ?? 0);
+  // Additional locations totals
+  const additionalLocationsTotalPerItem = additionalLocationsEnabled
+    ? additionalLocations.reduce(
+        (sum, loc) => sum + (loc.quote?.effectivePrice ?? 0),
+        0
+      )
+    : 0;
+
+  const additionalLocationsAnyLoading = additionalLocations.some((loc) => loc.loading);
+
+  // Final Per-Item Price: existing salesPrice + sum(additional location effective prices).
+  // Additive only — no solver, no contribution-target adjustment.
+  const finalPerItemPrice = additionalLocationsEnabled
+    ? (itemQuote?.salesPrice ?? 0) + additionalLocationsTotalPerItem
+    : itemQuote?.salesPrice ?? 0;
+
+  // Order total
+  const qty = parseStrictPositiveInt(quantity) ?? 0;
+  const orderTotal = additionalLocationsEnabled
+    ? finalPerItemPrice * qty
+    : (itemQuote?.salesOrderTotal ?? 0) + (flatFeeQuote?.addOnTotal ?? 0);
+
+  // Combined audit metrics (recomputed from final additive price; these MUST NOT adjust price)
+  const COMMISSION_RATE = 0.08;
+  const totalCogsPerItem = additionalLocationsEnabled && itemQuote && isManagerItem(itemQuote)
+    ? itemQuote.totalProductionCogs +
+      additionalLocations.reduce(
+        (sum, loc) =>
+          sum + (loc.quote && isManagerFlatFee(loc.quote) ? loc.quote.engineCogs : 0),
+        0
+      )
+    : null;
+  const combinedCommissionReserve = finalPerItemPrice * COMMISSION_RATE;
+  const combinedGrossProfit = totalCogsPerItem !== null ? finalPerItemPrice - totalCogsPerItem : null;
+  const combinedNetContribution = combinedGrossProfit !== null
+    ? combinedGrossProfit - combinedCommissionReserve
+    : null;
+  const combinedGrossMargin = finalPerItemPrice > 0 && combinedGrossProfit !== null
+    ? combinedGrossProfit / finalPerItemPrice
+    : null;
+  const combinedContributionMargin = finalPerItemPrice > 0 && combinedNetContribution !== null
+    ? combinedNetContribution / finalPerItemPrice
+    : null;
 
   // Mode button order: primary leads with Vendor, evaluation leads with CMP
   const modeButtons: { key: ProductMode; label: string }[] = isPrimary
@@ -462,7 +770,10 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
                   id="product-select"
                   className="cmp-select"
                   value={selectedSku}
-                  onChange={(e) => setSelectedSku(e.target.value)}
+                  onChange={(e) => {
+                    invalidateItemQuote();
+                    setSelectedSku(e.target.value);
+                  }}
                 >
                   <option value="">Select a product...</option>
                   {categories.map((cat) => (
@@ -689,7 +1000,10 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
                   step="0.01"
                   className="cmp-input"
                   value={manualCost}
-                  onChange={(e) => setManualCost(e.target.value)}
+                  onChange={(e) => {
+                    invalidateItemQuote();
+                    setManualCost(e.target.value);
+                  }}
                   placeholder="e.g. 3.95"
                 />
               </div>
@@ -709,7 +1023,7 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
                     step="1"
                     className="cmp-input"
                     value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
+                    onChange={(e) => handleQuantityChange(e.target.value)}
                   />
                 </div>
                 {isDecimalQuantity(quantity) && (
@@ -745,106 +1059,182 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
             </div>
           </section>
 
-          {/* Add-On Service — compact */}
-          <section className="cmp-card p-4" aria-labelledby="flat-fee-heading">
-            <h2
-              id="flat-fee-heading"
-              className="text-xs font-bold uppercase tracking-wider text-cmp-charcoal mb-2 font-display"
-            >
-              Add-On Service
-            </h2>
-            <div className="flex items-end gap-3">
-              <div className="flex-1">
-                <label htmlFor="service-select" className="cmp-label">
-                  Service
-                </label>
-                <select
-                  id="service-select"
-                  className="cmp-select"
-                  value={selectedService}
-                  onChange={(e) => setSelectedService(e.target.value)}
+          {additionalLocationsEnabled ? (
+            /* Additional Locations — multi-row */
+            <section className="cmp-card p-4" aria-labelledby="additional-locations-heading">
+              <div className="flex items-center justify-between mb-2">
+                <h2
+                  id="additional-locations-heading"
+                  className="text-xs font-bold uppercase tracking-wider text-cmp-charcoal font-display"
                 >
-                  <option value="">None</option>
-                  {FLAT_FEE_SERVICES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                  Additional Locations
+                </h2>
+                <button
+                  type="button"
+                  onClick={addLocation}
+                  className="text-xs font-medium text-cmp-cyan hover:text-cmp-cyan/80 transition-colors"
+                  data-testid="add-location-btn"
+                >
+                  + Add Location
+                </button>
               </div>
-              {selectedService && (
-                <div className="w-28">
-                  <label htmlFor="flat-fee-qty" className="cmp-label">
-                    Service Qty
+
+              {additionalLocations.length === 0 && (
+                <p className="text-xs text-cmp-gray py-1">
+                  No additional locations selected.
+                </p>
+              )}
+
+              <div className="space-y-2">
+                {additionalLocations.map((loc) => {
+                  const availableServices = FLAT_FEE_SERVICES.filter(
+                    (s) => s === loc.service || !selectedLocationServices.has(s)
+                  );
+                  return (
+                    <div
+                      key={loc.id}
+                      className="flex items-center gap-2"
+                      data-testid={`location-row-${loc.id}`}
+                    >
+                      <select
+                        className="cmp-select flex-1"
+                        value={loc.service}
+                        onChange={(e) => updateLocationService(loc.id, e.target.value)}
+                        aria-label={`Service for location ${loc.id}`}
+                      >
+                        <option value="">Select service...</option>
+                        {availableServices.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                      {loc.loading && (
+                        <LoadingSpinner />
+                      )}
+                      {loc.quote && !loc.loading && (
+                        <span className="text-xs text-cmp-charcoal font-medium min-w-[60px] text-right">
+                          {formatCurrency(loc.quote.effectivePrice)}
+                        </span>
+                      )}
+                      {loc.error && (
+                        <span className="text-xs text-red-600" role="alert">Error</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeLocation(loc.id)}
+                        className="text-cmp-gray hover:text-red-500 transition-colors text-sm shrink-0"
+                        aria-label={`Remove location ${loc.service || loc.id}`}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : (
+            /* Legacy Add-On Service — compact */
+            <section className="cmp-card p-4" aria-labelledby="flat-fee-heading">
+              <h2
+                id="flat-fee-heading"
+                className="text-xs font-bold uppercase tracking-wider text-cmp-charcoal mb-2 font-display"
+              >
+                Add-On Service
+              </h2>
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <label htmlFor="service-select" className="cmp-label">
+                    Service
                   </label>
-                  <input
-                    id="flat-fee-qty"
-                    type="number"
-                    min="1"
-                    step="1"
-                    className="cmp-input"
-                    value={flatFeeQuantity}
-                    onChange={(e) => setFlatFeeQuantity(e.target.value)}
-                    placeholder={quantity}
-                  />
+                  <select
+                    id="service-select"
+                    className="cmp-select"
+                    value={selectedService}
+                    onChange={(e) => setSelectedService(e.target.value)}
+                  >
+                    <option value="">None</option>
+                    {FLAT_FEE_SERVICES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectedService && (
+                  <div className="w-28">
+                    <label htmlFor="flat-fee-qty" className="cmp-label">
+                      Service Qty
+                    </label>
+                    <input
+                      id="flat-fee-qty"
+                      type="number"
+                      min="1"
+                      step="1"
+                      className="cmp-input"
+                      value={flatFeeQuantity}
+                      onChange={(e) => setFlatFeeQuantity(e.target.value)}
+                      placeholder={quantity}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Manager edits for flat-fee */}
+              {selectedService && role === "manager" && (
+                <div className="mt-3 pt-2.5 border-t border-cmp-gray-light/50 space-y-2.5">
+                  <p className="text-[10px] text-cmp-warning font-medium uppercase tracking-wider">
+                    Manager Controls
+                  </p>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div>
+                      <label htmlFor="extra-op-min" className="cmp-label">
+                        Extra Op Min/Shirt
+                      </label>
+                      <input
+                        id="extra-op-min"
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        className="cmp-input"
+                        value={extraOpMinutes}
+                        onChange={(e) => setExtraOpMinutes(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="extra-des-min" className="cmp-label">
+                        Extra Des Min/Order
+                      </label>
+                      <input
+                        id="extra-des-min"
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        className="cmp-input"
+                        value={extraDesMinutes}
+                        onChange={(e) => setExtraDesMinutes(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="manual-override" className="cmp-label">
+                        Override ($)
+                      </label>
+                      <input
+                        id="manual-override"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="cmp-input"
+                        value={manualOverride}
+                        onChange={(e) => setManualOverride(e.target.value)}
+                        placeholder="Auto"
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
-
-            {/* Manager edits for flat-fee */}
-            {selectedService && role === "manager" && (
-              <div className="mt-3 pt-2.5 border-t border-cmp-gray-light/50 space-y-2.5">
-                <p className="text-[10px] text-cmp-warning font-medium uppercase tracking-wider">
-                  Manager Controls
-                </p>
-                <div className="grid grid-cols-3 gap-2.5">
-                  <div>
-                    <label htmlFor="extra-op-min" className="cmp-label">
-                      Extra Op Min/Shirt
-                    </label>
-                    <input
-                      id="extra-op-min"
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      className="cmp-input"
-                      value={extraOpMinutes}
-                      onChange={(e) => setExtraOpMinutes(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="extra-des-min" className="cmp-label">
-                      Extra Des Min/Order
-                    </label>
-                    <input
-                      id="extra-des-min"
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      className="cmp-input"
-                      value={extraDesMinutes}
-                      onChange={(e) => setExtraDesMinutes(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="manual-override" className="cmp-label">
-                      Override ($)
-                    </label>
-                    <input
-                      id="manual-override"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="cmp-input"
-                      value={manualOverride}
-                      onChange={(e) => setManualOverride(e.target.value)}
-                      placeholder="Auto"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
+            </section>
+          )}
         </div>
 
         {/* RIGHT: Summary */}
@@ -890,10 +1280,13 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
                 {/* Hero price */}
                 <div className="text-center mb-3">
                   <p className="text-[10px] text-cmp-gray uppercase tracking-wider mb-0.5">
-                    Per-Item Price
+                    {additionalLocationsEnabled ? "Final Per-Item Price" : "Per-Item Price"}
                   </p>
-                  <p className="cmp-price-hero" aria-label={`Per-item price: ${formatCurrency(itemQuote.salesPrice)}`}>
-                    {formatCurrency(itemQuote.salesPrice)}
+                  <p
+                    className={`cmp-price-hero ${additionalLocationsAnyLoading ? "opacity-60" : ""}`}
+                    aria-label={`Per-item price: ${formatCurrency(finalPerItemPrice)}`}
+                  >
+                    {formatCurrency(finalPerItemPrice)}
                   </p>
                   <p className="text-[10px] text-cmp-gray mt-0.5">
                     Tier: {itemQuote.tierLabel}
@@ -903,16 +1296,92 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
                 {/* Breakdown */}
                 <div className="space-y-1 text-sm border-t border-cmp-gray-light/50 pt-2.5">
                   <Row label="Product Sell" value={formatCurrency(itemQuote.productSell)} />
-                  <Row label="Decoration Sell" value={formatCurrency(itemQuote.decorationSell)} />
                   <Row
-                    label="Sales Price"
-                    value={formatCurrency(itemQuote.salesPrice)}
+                    label={additionalLocationsEnabled ? "Base Decoration Sell" : "Decoration Sell"}
+                    value={formatCurrency(itemQuote.decorationSell)}
+                  />
+                  {additionalLocationsEnabled && additionalLocations.map((loc) =>
+                    loc.quote ? (
+                      <Row
+                        key={loc.id}
+                        label={loc.service}
+                        value={formatCurrency(loc.quote.effectivePrice)}
+                      />
+                    ) : null
+                  )}
+                  <Row
+                    label={additionalLocationsEnabled ? "Final Per-Item Price" : "Sales Price"}
+                    value={formatCurrency(finalPerItemPrice)}
                     bold
                   />
                 </div>
 
-                {/* Manager details */}
-                {isManagerItem(itemQuote) && (
+                {/* COGS & Contribution Breakdown (protected feature only) */}
+                {additionalLocationsEnabled && isManagerItem(itemQuote) && (
+                  <div className="mt-2.5 pt-2.5 border-t border-cmp-gray-light/50 space-y-1 text-sm" data-testid="cogs-breakdown">
+                    <p className="text-[10px] text-cmp-warning font-medium uppercase tracking-wider mb-1.5">
+                      COGS Breakdown
+                    </p>
+                    <Row label="Product COGS" value={formatCurrency(itemQuote.totalProductionCogs - itemQuote.totalDecorationCogs)} />
+                    <Row label="Base Decoration COGS" value={formatCurrency(itemQuote.totalDecorationCogs)} />
+                    {additionalLocations.map((loc) =>
+                      loc.quote && isManagerFlatFee(loc.quote) ? (
+                        <Row
+                          key={`cogs-${loc.id}`}
+                          label={`${loc.service} COGS`}
+                          value={formatCurrency(loc.quote.engineCogs)}
+                        />
+                      ) : null
+                    )}
+                    {totalCogsPerItem !== null && (
+                      <Row
+                        label="Total COGS / Item"
+                        value={formatCurrency(totalCogsPerItem)}
+                        bold
+                      />
+                    )}
+                    <Row label="Commission Reserve" value={formatCurrency(combinedCommissionReserve)} />
+                    {combinedGrossProfit !== null && (
+                      <Row label="Gross Profit" value={formatCurrency(combinedGrossProfit)} />
+                    )}
+                    {combinedNetContribution !== null && (
+                      <Row label="Net Contribution" value={formatCurrency(combinedNetContribution)} />
+                    )}
+                    {combinedGrossMargin !== null && (
+                      <Row label="Gross Margin" value={formatPercent(combinedGrossMargin)} />
+                    )}
+                    {combinedContributionMargin !== null && (
+                      <Row label="Post-Commission Contribution Margin" value={formatPercent(combinedContributionMargin)} />
+                    )}
+                    {itemQuote.vendorCatalog && (
+                      <>
+                        <Row
+                          label="Vendor Variant"
+                          value={`${itemQuote.vendorCatalog.vendor.toUpperCase()} ${itemQuote.vendorCatalog.styleCode}`}
+                        />
+                        <Row
+                          label="Variant Cost"
+                          value={formatCurrency(itemQuote.vendorCatalog.unitCost)}
+                        />
+                        <Row
+                          label="Cost Basis"
+                          value={itemQuote.vendorCatalog.costBasis}
+                        />
+                        <Row
+                          label="Source Date"
+                          value={
+                            itemQuote.vendorCatalog.sourceSyncAt
+                              ? new Date(itemQuote.vendorCatalog.sourceSyncAt).toLocaleDateString()
+                              : "Unknown"
+                          }
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Manager details (non-additional-locations mode) */}
+                {!additionalLocationsEnabled && isManagerItem(itemQuote) && (
                   <div className="mt-2.5 pt-2.5 border-t border-cmp-gray-light/50 space-y-1 text-sm">
                     <p className="text-[10px] text-cmp-warning font-medium uppercase tracking-wider mb-1.5">
                       Internal Details
@@ -975,19 +1444,27 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
                 {/* Order totals */}
                 <div className="mt-2.5 pt-2.5 border-t border-cmp-gray-light/50 space-y-1 text-sm">
                   <Row
-                    label="Item Order Total"
-                    value={formatCurrency(itemQuote.salesOrderTotal)}
+                    label={additionalLocationsEnabled ? "Combined Order Total" : "Item Order Total"}
+                    value={formatCurrency(additionalLocationsEnabled ? orderTotal : itemQuote.salesOrderTotal)}
                     bold
                   />
                   {isManagerItem(itemQuote) && (
                     <>
                       <Row
-                        label="Production COGS Total"
-                        value={formatCurrency(itemQuote.productionCogsOrderTotal)}
+                        label={additionalLocationsEnabled ? "Combined Production COGS Total" : "Production COGS Total"}
+                        value={formatCurrency(
+                          additionalLocationsEnabled && totalCogsPerItem !== null
+                            ? totalCogsPerItem * qty
+                            : itemQuote.productionCogsOrderTotal
+                        )}
                       />
                       <Row
-                        label="Net Contribution Total"
-                        value={formatCurrency(itemQuote.netContributionOrderTotal)}
+                        label={additionalLocationsEnabled ? "Combined Net Contribution Total" : "Net Contribution Total"}
+                        value={formatCurrency(
+                          additionalLocationsEnabled && combinedNetContribution !== null
+                            ? combinedNetContribution * qty
+                            : itemQuote.netContributionOrderTotal
+                        )}
                       />
                     </>
                   )}
@@ -1002,8 +1479,8 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
             )}
           </div>
 
-          {/* Flat-Fee Summary */}
-          {selectedService && (
+          {/* Flat-Fee Summary (legacy mode only) */}
+          {!additionalLocationsEnabled && selectedService && (
             <div className="cmp-card p-4" aria-labelledby="flat-fee-summary-heading">
               <h2
                 id="flat-fee-summary-heading"
@@ -1095,9 +1572,9 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
               >
                 {formatCurrency(orderTotal)}
               </p>
-              {flatFeeQuote && (
+              {(additionalLocationsEnabled ? additionalLocations.some((l) => l.quote) : flatFeeQuote) && (
                 <p className="text-[10px] text-cmp-gray-light mt-0.5">
-                  Items + Add-On
+                  {additionalLocationsEnabled ? "Items + Additional Locations" : "Items + Add-On"}
                 </p>
               )}
             </div>
@@ -1111,7 +1588,7 @@ export default function QuoteDeskClient({ catalog, mode = "evaluation" }: Props)
                   Per Item
                 </p>
                 <p className="text-lg font-bold text-white font-display">
-                  {formatCurrency(itemQuote.salesPrice)}
+                  {formatCurrency(finalPerItemPrice)}
                 </p>
               </div>
               <div className="text-right">
