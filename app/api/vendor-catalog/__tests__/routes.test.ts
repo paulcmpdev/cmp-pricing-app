@@ -83,7 +83,7 @@ describe("vendor catalog API", () => {
 
     const variantResponse = await variantsGET(
       request("http://localhost/api/vendor-catalog/styles/ss%3A3001/variants"),
-      { params: { styleId: "ss%3A3001" } }
+      { params: Promise.resolve({ styleId: "ss%3A3001" }) }
     );
     expect(variantResponse.status).toBe(200);
     const variantJson = await variantResponse.json();
@@ -92,7 +92,7 @@ describe("vendor catalog API", () => {
 
     const sanmarVariantResponse = await variantsGET(
       request("http://localhost/api/vendor-catalog/styles/sanmar%3AK500/variants"),
-      { params: { styleId: "sanmar%3AK500" } }
+      { params: Promise.resolve({ styleId: "sanmar%3AK500" }) }
     );
     expect(sanmarVariantResponse.status).toBe(200);
     const sanmarVariantJson = await sanmarVariantResponse.json();

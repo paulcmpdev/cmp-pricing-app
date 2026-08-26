@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import {
   isPricingPreviewEnabled,
   isAdditionalLocationsPreviewEnabled,
+  isAuthenticatedProductionFeaturesEnabled,
 } from "@/lib/server/pricing-preview-gate";
 import AdminHeader from "../_components/AdminHeader";
 import PricingPreview from "../_components/PricingPreview";
@@ -22,7 +23,11 @@ export default function PricingPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-neutral-900">
-      <AdminHeader activeSection="pricing" pricingPreviewEnabled />
+      <AdminHeader
+        activeSection="pricing"
+        pricingPreviewEnabled
+        authenticatedProduction={isAuthenticatedProductionFeaturesEnabled()}
+      />
       <main className="flex-1 px-4 py-5 max-w-7xl mx-auto w-full space-y-8">
         <PricingPreview />
         {showAdditionalLocations && (

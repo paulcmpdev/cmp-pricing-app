@@ -27,6 +27,8 @@ export default defineConfig({
       CMP_ALLOW_LOCAL_MANAGER_MODE: "true",
       CMP_ENABLE_PRICING_PREVIEW: "true",
       CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW: "true",
+      NEXTAUTH_URL: BASE_URL,
+      NEXTAUTH_SECRET: "auth-disabled-e2e-secret-with-at-least-thirty-two-characters",
     },
   },
 });

@@ -150,7 +150,6 @@ export default function AdditionalLocationMatrixPreview() {
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [margins, fetchPreview, previewPaused]);
 
   // Beforeunload warning

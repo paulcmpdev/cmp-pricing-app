@@ -5,6 +5,7 @@ import {
   ADDITIONAL_LOCATION_MARGIN_LANES,
 } from "@/lib/pricing/additional-location-matrix-preview";
 import { isAdditionalLocationsPreviewEnabled } from "@/lib/server/pricing-preview-gate";
+import { requireRole } from "@/lib/server/auth/route-guards";
 
 const MarginEditsSchema = z.object({
   edits: z.record(
@@ -24,7 +25,10 @@ function disabledResponse() {
   return NextResponse.json({ error: "Not found." }, { status: 404 });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authError = await requireRole(request, "admin_access");
+  if (authError) return authError;
+
   if (!isAdditionalLocationsPreviewEnabled()) {
     return disabledResponse();
   }
@@ -35,6 +39,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const authError = await requireRole(request, "admin_access");
+  if (authError) return authError;
+
   if (!isAdditionalLocationsPreviewEnabled()) {
     return disabledResponse();
   }

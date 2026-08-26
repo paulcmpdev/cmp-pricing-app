@@ -17,19 +17,19 @@ test.describe("Guided Builder", () => {
     await page.locator("#gb-product-select").selectOption("ST400");
 
     // Click Next
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 2: Quantity
     await expect(page.getByRole("heading", { name: "Quantity" })).toBeVisible();
     await page.locator("#gb-quantity").fill("84");
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 3: Decoration
     await expect(
       page.getByRole("heading", { name: "Decoration" })
     ).toBeVisible();
     await expect(page.getByText("DTF")).toBeVisible();
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 4: Review - should show quote
     await expect(page.getByRole("heading", { name: "Review" })).toBeVisible();
@@ -57,11 +57,11 @@ test.describe("Guided Builder", () => {
 
     // Step 1: Select product
     await page.locator("#gb-product-select").selectOption("PC90H");
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 2: Set quantity
     await page.locator("#gb-quantity").fill("200");
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 3: Decoration - add a service
     await page.locator("#gb-service-select").selectOption("Sleeve Print");
@@ -77,10 +77,10 @@ test.describe("Guided Builder", () => {
     await expect(page.locator("#gb-product-select")).toHaveValue("PC90H");
 
     // Go forward again - values should still be preserved
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
     await expect(page.locator("#gb-quantity")).toHaveValue("200");
 
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
     await expect(page.locator("#gb-service-select")).toHaveValue("Sleeve Print");
   });
 
@@ -91,15 +91,15 @@ test.describe("Guided Builder", () => {
 
     // Step 1: Product
     await page.locator("#gb-product-select").selectOption("3001");
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 2: Quantity
     await page.locator("#gb-quantity").fill("100");
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 3: Decoration - add flat-fee service
     await page.locator("#gb-service-select").selectOption("Name + Number");
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 4: Review
     await expect(
@@ -118,7 +118,7 @@ test.describe("Guided Builder", () => {
 
     // Step 1: Select product
     await page.locator("#gb-product-select").selectOption("ST400");
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 2: Enter decimal quantity
     await page.locator("#gb-quantity").fill("50.5");
@@ -127,7 +127,7 @@ test.describe("Guided Builder", () => {
     ).toBeVisible();
 
     // Next button should be disabled
-    await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Next", exact: true })).toBeDisabled();
   });
 
   test(">5000 shows manager review warning", async ({
@@ -137,7 +137,7 @@ test.describe("Guided Builder", () => {
 
     // Step 1: Select product
     await page.locator("#gb-product-select").selectOption("ST400");
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 2: Enter high quantity
     await page.locator("#gb-quantity").fill("5001");

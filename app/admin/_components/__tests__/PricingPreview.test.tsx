@@ -19,6 +19,10 @@ vi.mock("next/link", () => ({
   }) => React.createElement("a", { href, className }, children),
 }));
 
+vi.mock("@/lib/client/auth/UserMenu", () => ({
+  default: () => null,
+}));
+
 import AdminHeader from "../AdminHeader";
 
 describe("AdminHeader", () => {

@@ -195,7 +195,7 @@ npm run catalog:import-sqlite
 ## Testing
 
 ```bash
-# Unit + deterministic mock tests (Node 20)
+# Unit + deterministic mock tests (Node 22)
 npm test
 
 # PG integration tests (requires local PostgreSQL)

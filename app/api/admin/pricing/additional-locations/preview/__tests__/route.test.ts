@@ -28,7 +28,9 @@ describe("admin additional locations matrix preview API", () => {
 
     const { GET, POST } = await import("../route");
 
-    const getResponse = await GET();
+    const getResponse = await GET(
+      request("http://localhost/api/admin/pricing/additional-locations/preview")
+    );
     expect(getResponse.status).toBe(404);
 
     const postResponse = await POST(
@@ -47,7 +49,9 @@ describe("admin additional locations matrix preview API", () => {
     env.CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW = "true";
 
     const { GET } = await import("../route");
-    const response = await GET();
+    const response = await GET(
+      request("http://localhost/api/admin/pricing/additional-locations/preview")
+    );
     expect(response.status).toBe(404);
   });
 
@@ -57,7 +61,9 @@ describe("admin additional locations matrix preview API", () => {
     env.CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW = "true";
 
     const { GET } = await import("../route");
-    const response = await GET();
+    const response = await GET(
+      request("http://localhost/api/admin/pricing/additional-locations/preview")
+    );
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.rows).toHaveLength(104);

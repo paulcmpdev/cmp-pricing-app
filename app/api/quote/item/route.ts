@@ -10,6 +10,10 @@ import {
 } from "@/lib/server/vendor-catalog/repository";
 import { validateQuantity } from "@/lib/pricing/quantity";
 import { isAdditionalLocationsPreviewEnabled } from "@/lib/server/pricing-preview-gate";
+import {
+  requireRole,
+  resolveAuthenticatedProjection,
+} from "@/lib/server/auth/route-guards";
 
 /**
  * Accepts either { productCost } directly or { sku } to resolve cost server-side.
@@ -34,6 +38,9 @@ const RequestBodySchema = z
   });
 
 export async function POST(request: NextRequest) {
+  const authError = await requireRole(request, "view_quotes");
+  if (authError) return authError;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -146,19 +153,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Manager mode exposes raw cost data. Allow it under:
-  // 1. Additional-locations preview: server-enforced via env gate. Access to
-  //    preview deployments is protected by Vercel Deployment Protection;
-  //    VERCEL_ENV=production hard blocks even when the flag is set.
-  //    A spoofed x-cmp-role header alone never unlocks preview COGS.
-  // 2. Local manager opt-in (non-production + explicit env var + header)
-  const role = request.headers.get("x-cmp-role");
-  const localManagerAllowed =
-    role === "manager" &&
-    process.env.NODE_ENV !== "production" &&
-    process.env.CMP_ALLOW_LOCAL_MANAGER_MODE === "true";
-  const previewManagerAllowed = isAdditionalLocationsPreviewEnabled();
-  const isManager = previewManagerAllowed || localManagerAllowed;
+  // Resolve projection level: auth-aware when CMP_AUTH_ENABLED=true,
+  // otherwise falls back to legacy preview/local-manager behavior.
+  const projection = await resolveAuthenticatedProjection(request);
+  const isManager = projection === "manager";
 
   try {
     const result = isManager
