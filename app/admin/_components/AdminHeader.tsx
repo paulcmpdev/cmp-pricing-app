@@ -6,24 +6,31 @@ import UserMenu from "@/lib/client/auth/UserMenu";
 const SECTION_TITLES = {
   catalog: "CATALOG OPERATIONS",
   pricing: "PRICING PREVIEW",
+  users: "USERS & ACCESS",
 } as const;
 
 export default function AdminHeader({
   activeSection,
   pricingPreviewEnabled,
+  userAccessEnabled = false,
   authenticatedProduction = false,
 }: {
-  activeSection: "catalog" | "pricing";
+  activeSection: "catalog" | "pricing" | "users";
   pricingPreviewEnabled: boolean;
+  userAccessEnabled?: boolean;
   authenticatedProduction?: boolean;
 }) {
   const previewStatus = authenticatedProduction
     ? activeSection === "pricing"
       ? "Authenticated production · Session only"
-      : "Authenticated production · Read-only"
+      : activeSection === "users"
+        ? "Authenticated production · Access control"
+        : "Authenticated production · Read-only"
     : activeSection === "pricing"
       ? "Private preview · Session only"
-      : "Private preview · Read-only";
+      : activeSection === "users"
+        ? "Access control"
+        : "Private preview · Read-only";
 
   return (
     <>
@@ -54,6 +61,14 @@ export default function AdminHeader({
                 className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
               >
                 Pricing Preview
+              </Link>
+            )}
+            {activeSection !== "users" && userAccessEnabled && (
+              <Link
+                href="/admin/users"
+                className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+              >
+                Users &amp; Access
               </Link>
             )}
           </nav>

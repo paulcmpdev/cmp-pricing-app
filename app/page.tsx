@@ -3,6 +3,8 @@ import { isAdditionalLocationsPreviewEnabled } from "@/lib/server/pricing-previe
 import QuoteDeskClient from "./concepts/quote-desk/QuoteDeskClient";
 import UserMenu from "@/lib/client/auth/UserMenu";
 import { isAuthEnabled } from "@/lib/server/auth/policy";
+import { requirePageAuth, isUserAccessEnabled } from "@/lib/server/auth/access-resolution";
+import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -12,7 +14,13 @@ export const metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default function RootPage() {
+export default async function RootPage() {
+  // Authoritative page guard: when user access is enabled, verify DB access
+  if (isAuthEnabled() && isUserAccessEnabled()) {
+    const guard = await requirePageAuth();
+    if (!guard.allowed) redirect(guard.redirect);
+  }
+
   const catalog = getCatalogEntries();
   const additionalLocationsEnabled = isAdditionalLocationsPreviewEnabled();
   const authEnabled = isAuthEnabled();

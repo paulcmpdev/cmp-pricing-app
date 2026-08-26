@@ -1,9 +1,11 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import {
   isPricingPreviewEnabled,
   isAdditionalLocationsPreviewEnabled,
   isAuthenticatedProductionFeaturesEnabled,
 } from "@/lib/server/pricing-preview-gate";
+import { isUserAccessEnabled, requirePageAccess } from "@/lib/server/auth/access-resolution";
+import { isAuthEnabled } from "@/lib/server/auth/policy";
 import AdminHeader from "../_components/AdminHeader";
 import PricingPreview from "../_components/PricingPreview";
 import AdditionalLocationMatrixPreview from "../_components/AdditionalLocationMatrixPreview";
@@ -14,7 +16,12 @@ export const metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  if (isAuthEnabled() && isUserAccessEnabled()) {
+    const guard = await requirePageAccess("admin_access");
+    if (!guard.allowed) redirect(guard.redirect);
+  }
+
   if (!isPricingPreviewEnabled()) {
     notFound();
   }
@@ -26,6 +33,7 @@ export default function PricingPage() {
       <AdminHeader
         activeSection="pricing"
         pricingPreviewEnabled
+        userAccessEnabled={isUserAccessEnabled()}
         authenticatedProduction={isAuthenticatedProductionFeaturesEnabled()}
       />
       <main className="flex-1 px-4 py-5 max-w-7xl mx-auto w-full space-y-8">
