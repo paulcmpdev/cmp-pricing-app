@@ -5,10 +5,71 @@
  * - JWT sessions (no database)
  * - Domain restriction to CMP_ALLOWED_GOOGLE_DOMAIN
  * - Server-derived roles embedded in JWT
+ *
+ * When CMP_USER_ACCESS_ENABLED=true, unknown verified users are
+ * inserted as pending and the signIn callback redirects to
+ * /pending-access. Bootstrap admin emails always pass through.
  */
 import type { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { isAllowedDomain, resolveRole } from "./policy";
+import {
+  isUserAccessEnabled,
+  isBootstrapAdmin,
+  resolveAccessFromUser,
+} from "./access-resolution";
+
+async function handleUserAccessSignIn(
+  email: string,
+  name: string | null,
+  image: string | null
+): Promise<boolean | string> {
+  // Bootstrap admins always pass
+  if (isBootstrapAdmin(email)) return true;
+
+  try {
+    const { getUserAccessRepository, isUserAccessDatabaseConfigured } =
+      await import("../user-access/repository");
+
+    if (!isUserAccessDatabaseConfigured()) {
+      // No DB configured: fail-closed for non-bootstrap users
+      return "/pending-access";
+    }
+
+    const repo = getUserAccessRepository();
+    const result = await repo.requestAccess({ email, name, image });
+
+    if (!result.ok) {
+      return "/pending-access";
+    }
+
+    const user = result.user;
+    if (user.status === "active" && user.role) {
+      return true;
+    }
+
+    // Pending or disabled
+    return "/pending-access";
+  } catch {
+    // Database unavailable: fail-closed, only bootstrap admins pass
+    return "/pending-access";
+  }
+}
+
+async function resolveCurrentAccessRole(email: string) {
+  if (isBootstrapAdmin(email)) return "admin" as const;
+
+  try {
+    const { getUserAccessRepository, isUserAccessDatabaseConfigured } =
+      await import("../user-access/repository");
+    if (!isUserAccessDatabaseConfigured()) return null;
+
+    const user = await getUserAccessRepository().getUser(email);
+    return resolveAccessFromUser(email, user)?.role ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -32,14 +93,33 @@ export const authOptions: NextAuthOptions = {
       const allowedDomain = process.env.CMP_ALLOWED_GOOGLE_DOMAIN;
       if (!allowedDomain) return false;
 
-      return isAllowedDomain(email, allowedDomain);
+      if (!isAllowedDomain(email, allowedDomain)) return false;
+
+      // User access feature gate
+      if (isUserAccessEnabled()) {
+        const normalized = email!.toLowerCase().trim();
+        const name = profile?.name ?? null;
+        const image = (profile as { picture?: string })?.picture ?? null;
+        return handleUserAccessSignIn(normalized, name, image);
+      }
+
+      return true;
     },
     async jwt({ token, profile }) {
       if (profile?.email) {
         token.email = profile.email.toLowerCase().trim();
-        token.role = resolveRole(token.email as string);
         token.name = profile.name;
         token.picture = (profile as { picture?: string }).picture;
+      }
+
+      if (token.email) {
+        if (isUserAccessEnabled()) {
+          const role = await resolveCurrentAccessRole(token.email as string);
+          if (role) token.role = role;
+          else delete token.role;
+        } else if (profile?.email) {
+          token.role = resolveRole(token.email as string);
+        }
       }
       return token;
     },
@@ -47,7 +127,9 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.email = token.email as string;
         session.user.name = token.name as string;
-        (session.user as { role?: string }).role = token.role as string;
+        (session.user as { role?: string }).role = token.role as
+          | string
+          | undefined;
         session.user.image = token.picture as string;
       }
       return session;

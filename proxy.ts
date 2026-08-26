@@ -18,6 +18,7 @@ import { getToken } from "next-auth/jwt";
 const PUBLIC_PATHS = [
   "/login",
   "/unauthorized",
+  "/pending-access",
   "/api/auth",
   "/_next",
   "/brand",
@@ -68,7 +69,14 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (isAdminPath(pathname) && token.role !== "admin") {
+  // When user access is enabled, the JWT role may be stale.
+  // Let all authenticated requests through; authoritative server-side
+  // route guards and page guards enforce the real DB-resolved role.
+  if (
+    isAdminPath(pathname) &&
+    token.role !== "admin" &&
+    process.env.CMP_USER_ACCESS_ENABLED !== "true"
+  ) {
     if (isApiPath(pathname)) {
       return NextResponse.json(
         { error: "Insufficient permissions." },

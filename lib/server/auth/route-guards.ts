@@ -3,6 +3,10 @@
  *
  * These are authoritative guards - they remain enforced even if
  * middleware is bypassed.
+ *
+ * When CMP_USER_ACCESS_ENABLED=true, guards re-resolve the
+ * authoritative role from PostgreSQL so role changes and
+ * suspensions take immediate effect.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
@@ -14,6 +18,11 @@ import {
   type CmpCapability,
   type QuoteProjection,
 } from "./policy";
+import {
+  isUserAccessEnabled,
+  resolveAccessFromUser,
+  resolveAccessFallback,
+} from "./access-resolution";
 
 export type AuthResult = {
   email: string;
@@ -38,7 +47,35 @@ async function getSessionRole(
   request: NextRequest
 ): Promise<AuthResult | null> {
   const token = await getToken({ req: request });
-  if (!token?.role || !token?.email) return null;
+  if (!token?.email) return null;
+
+  // When user access is enabled, re-resolve from database
+  if (isUserAccessEnabled()) {
+    const email = (token.email as string).toLowerCase().trim();
+    try {
+      const { getUserAccessRepository, isUserAccessDatabaseConfigured } =
+        await import("../user-access/repository");
+
+      if (!isUserAccessDatabaseConfigured()) {
+        // Fall back to bootstrap-only
+        const fallback = resolveAccessFallback(email);
+        return fallback ? { email: fallback.email, role: fallback.role } : null;
+      }
+
+      const repo = getUserAccessRepository();
+      const dbUser = await repo.getUser(email);
+      const access = resolveAccessFromUser(email, dbUser);
+      if (!access) return null;
+      return { email: access.email, role: access.role };
+    } catch {
+      // Database unavailable: fail-closed, only bootstrap admins pass
+      const fallback = resolveAccessFallback(email);
+      return fallback ? { email: fallback.email, role: fallback.role } : null;
+    }
+  }
+
+  // Original behavior: trust JWT role
+  if (!token?.role) return null;
   return { email: token.email as string, role: token.role as CmpRole };
 }
 
@@ -75,7 +112,8 @@ export async function requireRole(
 /**
  * Resolve the quote projection level for an authenticated request.
  *
- * When auth is enabled: uses JWT session role, ignores x-cmp-role.
+ * When auth is enabled: uses JWT session role (or DB-resolved role
+ * when user access is enabled), ignores x-cmp-role.
  * When auth is disabled: falls back to legacy preview/local behavior.
  */
 export async function resolveAuthenticatedProjection(
