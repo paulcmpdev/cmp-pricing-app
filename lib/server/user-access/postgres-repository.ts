@@ -392,6 +392,14 @@ export function createPostgresUserAccessRepository(
           };
         }
 
+        if (current.role === params.role) {
+          return {
+            ok: false,
+            reason: "conflict",
+            message: `User already has the ${params.role} role.`,
+          };
+        }
+
         // Final admin protection: cannot demote the last active admin
         if (current.role === "admin" && params.role !== "admin") {
           // Serialize admin-count-reducing mutations to prevent races

@@ -212,6 +212,56 @@ describe("changeRole", () => {
     if (!result.ok) expect(result.reason).toBe("forbidden");
   });
 
+  it("rejects a role change when the selected role is unchanged", async () => {
+    setEnv();
+    const userRow = makeUserRow({
+      email: "rep@cmpsportswear.com",
+      status: "active",
+      role: "sales_rep",
+      version: 1,
+    });
+    const eventRow = makeEventRow({
+      user_email: userRow.email,
+      action: "role_changed",
+      actor_email: "admin@cmpsportswear.com",
+      before_role: "sales_rep",
+      after_role: "sales_rep",
+      before_status: "active",
+      after_status: "active",
+    });
+    const pool = createMockPool((text) => {
+      if (text.includes("FOR UPDATE")) return { rows: [userRow] };
+      if (text.includes("INSERT") && text.includes("RETURNING")) {
+        return { rows: [eventRow] };
+      }
+      if (text.includes("SELECT * FROM app_users")) {
+        return { rows: [{ ...userRow, version: 2 }] };
+      }
+      return { rows: [] };
+    });
+    const repo = createPostgresUserAccessRepository(pool as any);
+
+    const result = await repo.changeRole({
+      email: userRow.email,
+      role: "sales_rep",
+      actorEmail: "admin@cmpsportswear.com",
+      expectedVersion: 1,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("conflict");
+    expect(
+      pool._client.query.mock.calls.some(([text]) =>
+        String(text).includes("UPDATE app_users")
+      )
+    ).toBe(false);
+    expect(
+      pool._client.query.mock.calls.some(([text]) =>
+        String(text).includes("INSERT INTO app_user_access_events")
+      )
+    ).toBe(false);
+  });
+
   it("prevents demoting the last active admin", async () => {
     setEnv();
     const userRow = makeUserRow({
