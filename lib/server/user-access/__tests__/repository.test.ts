@@ -262,28 +262,74 @@ describe("changeRole", () => {
     ).toBe(false);
   });
 
-  it("prevents demoting the last active admin", async () => {
+  it("prevents demoting the last active admin when no bootstrap admin exists", async () => {
     setEnv();
+    env.CMP_ADMIN_EMAILS = "";
     const userRow = makeUserRow({
-      email: "other-admin@cmpsportswear.com",
+      email: "sole-admin@cmpsportswear.com",
       status: "active",
       role: "admin",
       version: 1,
     });
     const pool = createMockPool((text) => {
+      if (text.includes("SELECT role, status")) return { rows: [userRow] };
       if (text.includes("FOR UPDATE")) return { rows: [userRow] };
       if (text.includes("count(*)")) return { rows: [{ count: "1" }] };
       return { rows: [] };
     });
     const repo = createPostgresUserAccessRepository(pool as any);
     const result = await repo.changeRole({
-      email: "other-admin@cmpsportswear.com",
+      email: userRow.email,
       role: "sales_rep",
-      actorEmail: "admin@cmpsportswear.com",
+      actorEmail: userRow.email,
       expectedVersion: 1,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("forbidden");
+  });
+
+  it("allows demoting a database admin when a bootstrap admin remains", async () => {
+    setEnv();
+    const userRow = makeUserRow({
+      email: "watson@cmpsportswear.com",
+      status: "active",
+      role: "admin",
+      version: 1,
+    });
+    const updatedRow = { ...userRow, role: "manager", version: 2 };
+    const eventRow = makeEventRow({
+      user_email: userRow.email,
+      action: "role_changed",
+      actor_email: "bootstrap@cmpsportswear.com",
+      before_role: "admin",
+      after_role: "manager",
+      before_status: "active",
+      after_status: "active",
+    });
+    const pool = createMockPool((text) => {
+      if (text.includes("FOR UPDATE")) return { rows: [userRow] };
+      if (text.includes("INSERT") && text.includes("RETURNING")) {
+        return { rows: [eventRow] };
+      }
+      if (text.includes("SELECT * FROM app_users")) return { rows: [updatedRow] };
+      return { rows: [] };
+    });
+    const repo = createPostgresUserAccessRepository(pool as any);
+
+    const result = await repo.changeRole({
+      email: userRow.email,
+      role: "manager",
+      actorEmail: "bootstrap@cmpsportswear.com",
+      expectedVersion: 1,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.user.role).toBe("manager");
+    expect(
+      pool._client.query.mock.calls.some(([text]) =>
+        String(text).includes("count(*)")
+      )
+    ).toBe(false);
   });
 });
 
@@ -301,8 +347,9 @@ describe("disableUser", () => {
     if (!result.ok) expect(result.reason).toBe("forbidden");
   });
 
-  it("prevents disabling the last active admin", async () => {
+  it("prevents disabling the last active admin when no bootstrap admin exists", async () => {
     setEnv();
+    env.CMP_ADMIN_EMAILS = "";
     const userRow = makeUserRow({
       email: "sole-admin@cmpsportswear.com",
       status: "active",
@@ -310,18 +357,62 @@ describe("disableUser", () => {
       version: 1,
     });
     const pool = createMockPool((text) => {
+      if (text.includes("SELECT role, status")) return { rows: [userRow] };
       if (text.includes("FOR UPDATE")) return { rows: [userRow] };
       if (text.includes("count(*)")) return { rows: [{ count: "1" }] };
       return { rows: [] };
     });
     const repo = createPostgresUserAccessRepository(pool as any);
     const result = await repo.disableUser({
-      email: "sole-admin@cmpsportswear.com",
-      actorEmail: "admin@cmpsportswear.com",
+      email: userRow.email,
+      actorEmail: userRow.email,
       expectedVersion: 1,
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("forbidden");
+  });
+
+  it("allows disabling a database admin when a bootstrap admin remains", async () => {
+    setEnv();
+    const userRow = makeUserRow({
+      email: "watson@cmpsportswear.com",
+      status: "active",
+      role: "admin",
+      version: 1,
+    });
+    const updatedRow = { ...userRow, status: "disabled", version: 2 };
+    const eventRow = makeEventRow({
+      user_email: userRow.email,
+      action: "disabled",
+      actor_email: "bootstrap@cmpsportswear.com",
+      before_role: "admin",
+      after_role: "admin",
+      before_status: "active",
+      after_status: "disabled",
+    });
+    const pool = createMockPool((text) => {
+      if (text.includes("FOR UPDATE")) return { rows: [userRow] };
+      if (text.includes("INSERT") && text.includes("RETURNING")) {
+        return { rows: [eventRow] };
+      }
+      if (text.includes("SELECT * FROM app_users")) return { rows: [updatedRow] };
+      return { rows: [] };
+    });
+    const repo = createPostgresUserAccessRepository(pool as any);
+
+    const result = await repo.disableUser({
+      email: userRow.email,
+      actorEmail: "bootstrap@cmpsportswear.com",
+      expectedVersion: 1,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.user.status).toBe("disabled");
+    expect(
+      pool._client.query.mock.calls.some(([text]) =>
+        String(text).includes("count(*)")
+      )
+    ).toBe(false);
   });
 
   it("rejects disabling an already disabled user", async () => {

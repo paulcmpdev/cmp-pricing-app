@@ -19,6 +19,10 @@ function isBootstrapAdmin(email: string): boolean {
   return admins.includes(normalizeEmail(email));
 }
 
+function hasConfiguredBootstrapAdmin(): boolean {
+  return parseEmailList(process.env.CMP_ADMIN_EMAILS).length > 0;
+}
+
 function rowToUser(row: Record<string, unknown>): AppUser {
   return {
     email: row.email as string,
@@ -401,7 +405,11 @@ export function createPostgresUserAccessRepository(
         }
 
         // Final admin protection: cannot demote the last active admin
-        if (current.role === "admin" && params.role !== "admin") {
+        if (
+          current.role === "admin" &&
+          params.role !== "admin" &&
+          !hasConfiguredBootstrapAdmin()
+        ) {
           // Serialize admin-count-reducing mutations to prevent races
           await client.query("SELECT pg_advisory_xact_lock($1)", [ADMIN_COUNT_LOCK_KEY]);
           const adminCount = await client.query(
@@ -492,7 +500,11 @@ export function createPostgresUserAccessRepository(
         }
 
         // Final admin protection
-        if (current.role === "admin" && current.status === "active") {
+        if (
+          current.role === "admin" &&
+          current.status === "active" &&
+          !hasConfiguredBootstrapAdmin()
+        ) {
           // Serialize admin-count-reducing mutations to prevent races
           await client.query("SELECT pg_advisory_xact_lock($1)", [ADMIN_COUNT_LOCK_KEY]);
           const adminCount = await client.query(
