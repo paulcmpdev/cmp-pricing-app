@@ -11,8 +11,10 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function UserMenu({
   showAdminLink = false,
+  compactOnMobile = false,
 }: {
   showAdminLink?: boolean;
+  compactOnMobile?: boolean;
 }) {
   const { data: session, status } = useSession();
 
@@ -21,8 +23,11 @@ export default function UserMenu({
   const role = (session.user as { role?: string }).role ?? "unknown";
 
   return (
-    <div className="flex items-center gap-3 text-xs" data-testid="user-menu">
-      <span className="text-cmp-gray truncate max-w-[180px]" data-testid="user-email">
+    <div className="flex items-center gap-2 sm:gap-3 text-xs" data-testid="user-menu">
+      <span
+        className={`${compactOnMobile ? "hidden lg:inline" : ""} text-cmp-gray truncate max-w-[180px]`}
+        data-testid="user-email"
+      >
         {session.user.email}
       </span>
       <span
@@ -34,14 +39,14 @@ export default function UserMenu({
       {showAdminLink && role === "admin" && (
         <Link
           href="/admin"
-          className="text-cmp-gray hover:text-cmp-cyan transition-colors"
+          className="inline-flex min-h-[44px] items-center text-cmp-gray hover:text-cmp-cyan transition-colors"
         >
           Admin
         </Link>
       )}
       <button
         onClick={() => signOut({ callbackUrl: "/login" })}
-        className="text-cmp-gray hover:text-white transition-colors"
+        className="inline-flex min-h-[44px] items-center text-cmp-gray hover:text-white transition-colors"
         data-testid="sign-out-btn"
       >
         Sign Out

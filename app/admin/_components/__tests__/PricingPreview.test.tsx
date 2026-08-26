@@ -20,7 +20,11 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("@/lib/client/auth/UserMenu", () => ({
-  default: () => null,
+  default: ({ compactOnMobile }: { compactOnMobile?: boolean }) =>
+    React.createElement("div", {
+      "data-testid": "mock-user-menu",
+      "data-compact-on-mobile": String(Boolean(compactOnMobile)),
+    }),
 }));
 
 import AdminHeader from "../AdminHeader";
@@ -73,6 +77,21 @@ describe("AdminHeader", () => {
       <AdminHeader activeSection="catalog" pricingPreviewEnabled={true} />
     );
     expect(html).toContain('aria-label="Admin sections"');
+  });
+
+  it("renders a dedicated mobile nav row and compact identity controls", () => {
+    const html = renderToStaticMarkup(
+      <AdminHeader
+        activeSection="users"
+        pricingPreviewEnabled
+        userAccessEnabled
+        authenticatedProduction
+      />
+    );
+
+    expect(html).toContain('data-testid="admin-mobile-nav"');
+    expect(html).toContain('data-compact-on-mobile="true"');
+    expect(html).toContain("min-h-[44px]");
   });
 });
 
