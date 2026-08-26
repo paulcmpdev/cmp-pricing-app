@@ -24,12 +24,21 @@ export default function UserMenu({
 
   return (
     <div className="flex items-center gap-2 sm:gap-3 text-xs" data-testid="user-menu">
-      <span
-        className={`${compactOnMobile ? "hidden lg:inline" : ""} text-cmp-gray truncate max-w-[180px]`}
-        data-testid="user-email"
-      >
-        {session.user.email}
-      </span>
+      {compactOnMobile ? (
+        <span
+          className="hidden max-w-[180px] truncate text-cmp-gray lg:inline"
+          data-testid="user-email"
+        >
+          {session.user.email}
+        </span>
+      ) : (
+        <span
+          className="max-w-[180px] truncate text-cmp-gray"
+          data-testid="user-email"
+        >
+          {session.user.email}
+        </span>
+      )}
       <span
         className="px-1.5 py-0.5 rounded bg-cmp-cyan/20 text-cmp-cyan font-semibold uppercase tracking-wider"
         data-testid="user-role"
