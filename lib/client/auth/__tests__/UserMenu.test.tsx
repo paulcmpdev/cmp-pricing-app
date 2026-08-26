@@ -32,7 +32,7 @@ describe("UserMenu", () => {
   it("keeps role and sign-out accessible while hiding email in compact mobile mode", () => {
     render(<UserMenu compactOnMobile />);
 
-    expect(screen.getByTestId("user-email")).toHaveClass("hidden", "lg:inline");
+    expect(screen.getByTestId("user-email")).toHaveClass("hidden", "lg:block");
     expect(screen.getByTestId("user-role")).toHaveTextContent("Admin");
     expect(screen.getByTestId("sign-out-btn")).toHaveClass("min-h-[44px]");
   });

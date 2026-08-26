@@ -26,7 +26,7 @@ export default function UserMenu({
     <div className="flex items-center gap-2 sm:gap-3 text-xs" data-testid="user-menu">
       {compactOnMobile ? (
         <span
-          className="hidden max-w-[180px] truncate text-cmp-gray lg:inline"
+          className="hidden max-w-[180px] truncate text-cmp-gray lg:block"
           data-testid="user-email"
         >
           {session.user.email}
