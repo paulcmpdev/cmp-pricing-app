@@ -284,6 +284,22 @@ test.describe("Admin Pricing Preview", () => {
       await expect(collapsedCard).toHaveAttribute("aria-expanded", "false");
       await expect(collapsedCard.getByText(/^\$\d+\.\d{2}$/)).toBeVisible();
       await expect(collapsedCard.getByText(/^T1 · \d+\.\d% GM$/)).toBeVisible();
+      await dtfSection(page).getByRole("button", { name: "Edit Matrix" }).click();
+      await expect(
+        mobileTiers.getByRole("heading", { name: "Quantity Configuration" })
+      ).toBeVisible();
+      await expect(
+        mobileTiers.getByTitle("Display label for this quantity row", { exact: true })
+      ).toBeEditable();
+      await expect(
+        mobileTiers.getByLabel("Tier 144-249 min qty", { exact: true })
+      ).toBeEditable();
+      await expect(
+        mobileTiers.getByLabel("Tier 144-249 max qty", { exact: true })
+      ).toBeEditable();
+      await expect(
+        mobileTiers.getByRole("button", { name: "Delete tier 144-249", exact: true })
+      ).toBeVisible();
       await expect(page.getByTestId("ap-mobile-card-list")).toBeVisible();
       await expect(page.getByTestId("ap-desktop-table-panel")).toHaveCount(0);
 

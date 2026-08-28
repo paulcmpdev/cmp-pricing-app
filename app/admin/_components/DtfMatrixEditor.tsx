@@ -882,16 +882,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                   return (
                     <tr
                       key={tierIdx}
-                      tabIndex={0}
-                      onClick={() => setSelectedTierIdx(tierIdx)}
-                      onFocus={() => setSelectedTierIdx(tierIdx)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          setSelectedTierIdx(tierIdx);
-                        }
-                      }}
-                      className={`border-b border-neutral-800 cursor-pointer hover:bg-neutral-800/50 ${
+                      className={`border-b border-neutral-800 hover:bg-neutral-800/50 ${
                         isSelected ? "bg-cyan-900/10" : ""
                       }`}
                     >
@@ -900,6 +891,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                           type="button"
                           onClick={() => setSelectedTierIdx(tierIdx)}
                           aria-label={`Select quantity ${tier.tier}`}
+                          aria-pressed={isSelected}
                           className="text-left hover:text-cyan-300"
                         >
                           {formatQtyRange(tier.minQty, tier.maxQty)}
@@ -1063,6 +1055,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
         {!isDesktop && (
           <div data-testid="dtf-mobile-tier-cards" className="space-y-2">
             {config.tiers.map((tier, tierIdx) => {
+              const isLast = tierIdx === config.tiers.length - 1;
               const tierBasis = basisForTier(tier);
               const expanded = tierIdx === selectedTierIdx;
               const primaryLane =
@@ -1113,6 +1106,78 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                   </button>
                   {expanded && (
                     <div className="p-3 space-y-2 border-t border-neutral-800">
+                      {editing && (
+                        <section
+                          aria-labelledby={`mobile-tier-config-${tierIdx}`}
+                          className="space-y-3 rounded border border-neutral-700 bg-neutral-900 p-3"
+                        >
+                          <h3
+                            id={`mobile-tier-config-${tierIdx}`}
+                            className="text-xs font-semibold text-neutral-200"
+                          >
+                            Quantity Configuration
+                          </h3>
+                          <label className="block space-y-1 text-[11px] text-neutral-400">
+                            <span>Display label</span>
+                            <input
+                              value={tier.tier}
+                              onChange={(e) => updateTierLabel(tierIdx, e.target.value)}
+                              className="min-h-[40px] w-full rounded border border-neutral-600 bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
+                              aria-label={`Tier ${tierIdx + 1} label`}
+                              title="Display label for this quantity row"
+                            />
+                          </label>
+                          <label className="block space-y-1 text-[11px] text-neutral-400">
+                            <span>Minimum quantity</span>
+                            <input
+                              type="number"
+                              value={tier.minQty}
+                              onChange={(e) =>
+                                updateTierRange(tierIdx, "minQty", e.target.value)
+                              }
+                              min="1"
+                              className="min-h-[40px] w-full rounded border border-neutral-600 bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
+                              aria-label={`Tier ${tier.tier} min qty`}
+                            />
+                          </label>
+                          {tier.maxQty !== null && (
+                            <label className="block space-y-1 text-[11px] text-neutral-400">
+                              <span>Maximum quantity</span>
+                              <input
+                                type="number"
+                                value={tier.maxQty}
+                                onChange={(e) =>
+                                  updateTierRange(tierIdx, "maxQty", e.target.value)
+                                }
+                                min={tier.minQty}
+                                className="min-h-[40px] w-full rounded border border-neutral-600 bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
+                                aria-label={`Tier ${tier.tier} max qty`}
+                              />
+                            </label>
+                          )}
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            {isLast && (
+                              <button
+                                type="button"
+                                onClick={() => toggleOpenEnded(tierIdx)}
+                                className="min-h-[40px] flex-1 rounded border border-neutral-600 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-200 hover:bg-neutral-700"
+                              >
+                                {tier.maxQty === null
+                                  ? "Set upper bound"
+                                  : "Make open-ended"}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => deleteTier(tierIdx)}
+                              className="min-h-[40px] flex-1 rounded border border-red-800 bg-red-950/30 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-900/40"
+                              aria-label={`Delete tier ${tier.tier}`}
+                            >
+                              Delete tier
+                            </button>
+                          </div>
+                        </section>
+                      )}
                       {activeLanes.map((lane) => (
                         <div
                           key={lane.key}
@@ -1156,7 +1221,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
       {editing && (
         <button
           onClick={addTier}
-          className="text-[10px] px-2.5 py-1 rounded bg-neutral-800 border border-neutral-700 text-neutral-300 hover:bg-neutral-700"
+          className="min-h-[40px] text-xs px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-neutral-300 hover:bg-neutral-700"
         >
           + Add Tier
         </button>

@@ -619,6 +619,25 @@ describe("structure controls are preserved", () => {
     expect(screen.queryByDisplayValue("101+")).not.toBeInTheDocument();
   });
 
+  it("keeps desktop row keyboard handling on the named selection button", async () => {
+    await renderEditing();
+
+    const label = screen.getByLabelText("Tier 1 label");
+    const row = label.closest("tr");
+    const select = screen.getByRole("button", { name: "Select quantity 1+" });
+
+    expect(row).not.toHaveAttribute("tabindex");
+    expect(select).toHaveAttribute("aria-pressed", "true");
+    expect(fireEvent.keyDown(label, { key: " " })).toBe(true);
+    expect(fireEvent.keyDown(label, { key: "Enter" })).toBe(true);
+
+    fireEvent.change(label, { target: { value: "Starter Tier" } });
+    expect(label).toHaveValue("Starter Tier");
+    expect(
+      screen.getByRole("button", { name: "Select quantity Starter Tier" })
+    ).toBeVisible();
+  });
+
   it("keeps add/delete/rename and active toggles for pricing lanes", async () => {
     await renderEditing();
 
@@ -1009,6 +1028,61 @@ describe("Pricing Studio layout", () => {
     // path do not duplicate its editable controls.
     expect(screen.getAllByLabelText("Tier 1+ T1 price")).toHaveLength(1);
     expect(screen.getAllByLabelText("Tier 1+ T1 DTF GM percent")).toHaveLength(1);
+  });
+
+  it("edits complete quantity configuration from the expanded mobile card", async () => {
+    window.innerWidth = 500;
+    const tieredConfig = {
+      ...dtfConfig,
+      tiers: [
+        { tier: "1-100", minQty: 1, maxQty: 100, prices: { T1: 7, T2: 6.5 } },
+        { tier: "101+", minQty: 101, maxQty: null, prices: { T1: 6.5, T2: 6 } },
+      ],
+    };
+    mockRoutedFetch({ config: tieredConfig });
+    render(<DtfMatrixEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select quantity 1-100" }));
+
+    expect(screen.getByRole("heading", { name: "Quantity Configuration" })).toBeVisible();
+    const label = screen.getByLabelText("Tier 1 label");
+    const min = screen.getByLabelText("Tier 1-100 min qty");
+    const max = screen.getByLabelText("Tier 1-100 max qty");
+    expect(label).toBeVisible();
+    expect(min).toBeVisible();
+    expect(max).toBeVisible();
+    expect(screen.getByRole("button", { name: "Delete tier 1-100" })).toBeVisible();
+
+    fireEvent.change(label, { target: { value: "Starter Tier" } });
+    fireEvent.change(screen.getByLabelText("Tier Starter Tier min qty"), {
+      target: { value: "1" },
+    });
+    fireEvent.change(screen.getByLabelText("Tier Starter Tier max qty"), {
+      target: { value: "120" },
+    });
+    expect(label).toHaveValue("Starter Tier");
+    expect(screen.getByLabelText("Tier Starter Tier max qty")).toHaveValue(120);
+
+    fireEvent.click(screen.getByRole("button", { name: "Select quantity 101+" }));
+    expect(screen.getByRole("button", { name: "Set upper bound" })).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Tier 101+ min qty"), {
+      target: { value: "121" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select quantity 221+" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set upper bound" }));
+    expect(screen.getByLabelText("Tier 221+ max qty")).toHaveValue(320);
+    fireEvent.click(screen.getByRole("button", { name: "Make open-ended" }));
+    expect(screen.queryByLabelText("Tier 221+ max qty")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete tier 221+" }));
+    expect(
+      screen.queryByRole("button", { name: "Select quantity 221+" })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set upper bound" })).toBeVisible();
   });
 
   it("initially selects the tier containing the default quote quantity without overriding a later selection", async () => {
