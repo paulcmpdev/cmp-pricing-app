@@ -296,7 +296,7 @@ describe("vendor catalog quote API path", () => {
 });
 
 const FLAT_FEE_BODY = {
-  service: "Additional Large Print",
+  service: "additional_large_print",
   orderQuantity: 12,
 };
 

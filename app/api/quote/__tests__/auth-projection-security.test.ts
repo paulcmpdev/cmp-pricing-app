@@ -63,7 +63,7 @@ function makeRequest(url: string, body: unknown, extraHeaders?: Record<string, s
 }
 
 const ITEM_BODY = { productCost: 3.95, quantity: 84 };
-const FLAT_FEE_BODY = { service: "Sleeve Print", orderQuantity: 84 };
+const FLAT_FEE_BODY = { service: "sleeve_print", orderQuantity: 84 };
 
 // Sensitive field patterns that must never appear in sales_rep responses
 const SENSITIVE_PATTERNS = /productCost|vendorCost|unitCost|cogs|wages|commission|contribution|costBasis|provenance/i;

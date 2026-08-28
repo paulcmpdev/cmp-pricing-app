@@ -10,10 +10,6 @@ import {
   GET as pricingGET,
   POST as pricingPOST,
 } from "../preview/route";
-import {
-  GET as locationsGET,
-  POST as locationsPOST,
-} from "../additional-locations/preview/route";
 
 const mockGetToken = vi.mocked(getToken);
 const env = process.env as Record<string, string | undefined>;
@@ -22,8 +18,6 @@ const original = {
   VERCEL_ENV: env.VERCEL_ENV,
   CMP_AUTH_ENABLED: env.CMP_AUTH_ENABLED,
   CMP_ENABLE_PRICING_PREVIEW: env.CMP_ENABLE_PRICING_PREVIEW,
-  CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW:
-    env.CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW,
 };
 
 function request(url: string, init?: RequestInit) {
@@ -38,21 +32,12 @@ const pricingPostRequest = () =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ edits: [] }),
   });
-const locationsRequest = () =>
-  request("http://localhost/api/admin/pricing/additional-locations/preview");
-const locationsPostRequest = () =>
-  request("http://localhost/api/admin/pricing/additional-locations/preview", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ edits: {} }),
-  });
 
 beforeEach(() => {
   env.NODE_ENV = "test";
   delete env.VERCEL_ENV;
   env.CMP_AUTH_ENABLED = "true";
   env.CMP_ENABLE_PRICING_PREVIEW = "true";
-  env.CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW = "true";
 });
 
 afterEach(() => {
@@ -67,8 +52,6 @@ describe("auth-enabled Admin pricing API boundary", () => {
   it.each([
     ["pricing GET", () => pricingGET(pricingRequest())],
     ["pricing POST", () => pricingPOST(pricingPostRequest())],
-    ["locations GET", () => locationsGET(locationsRequest())],
-    ["locations POST", () => locationsPOST(locationsPostRequest())],
   ])("returns 401 for unauthenticated %s", async (_name, invoke) => {
     mockGetToken.mockResolvedValue(null);
 
@@ -79,7 +62,7 @@ describe("auth-enabled Admin pricing API boundary", () => {
   });
 
   it.each(["sales_rep", "manager"] as const)(
-    "returns 403 for authenticated %s users on both Admin APIs",
+    "returns 403 for authenticated %s users on the pricing preview API",
     async (role) => {
       mockGetToken.mockResolvedValue({
         email: `${role}@cmpsportswear.com`,
@@ -89,8 +72,6 @@ describe("auth-enabled Admin pricing API boundary", () => {
       for (const invoke of [
         () => pricingGET(pricingRequest()),
         () => pricingPOST(pricingPostRequest()),
-        () => locationsGET(locationsRequest()),
-        () => locationsPOST(locationsPostRequest()),
       ]) {
         const response = await invoke();
         expect(response.status).toBe(403);
@@ -101,7 +82,7 @@ describe("auth-enabled Admin pricing API boundary", () => {
     }
   );
 
-  it("allows an authenticated Admin to use both preview APIs", async () => {
+  it("allows an authenticated Admin to use the pricing preview API", async () => {
     mockGetToken.mockResolvedValue({
       email: "paul@cmpsportswear.com",
       role: "admin",
@@ -110,9 +91,5 @@ describe("auth-enabled Admin pricing API boundary", () => {
     const pricingResponse = await pricingGET(pricingRequest());
     expect(pricingResponse.status).toBe(200);
     expect((await pricingResponse.json()).tiers).toHaveLength(23);
-
-    const locationsResponse = await locationsGET(locationsRequest());
-    expect(locationsResponse.status).toBe(200);
-    expect((await locationsResponse.json()).rows).toHaveLength(104);
   });
 });

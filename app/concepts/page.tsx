@@ -9,20 +9,6 @@ const concepts = [
       "Split-pane desktop layout. Inputs on the left, sticky quote summary on the right. Fastest path for repeat staff quoting.",
     available: true,
   },
-  {
-    slug: "guided-builder",
-    title: "Guided Builder",
-    description:
-      "Step-by-step wizard through product, quantity, decoration, and review. Mobile-friendly, best for occasional users.",
-    available: true,
-  },
-  {
-    slug: "command-center",
-    title: "Command Center",
-    description:
-      "Compact dashboard with headline price hierarchy, inline composition breakdown, and expandable manager audit panel. Built for power users.",
-    available: true,
-  },
 ] as const;
 
 export default function ConceptsPage() {
@@ -49,8 +35,7 @@ export default function ConceptsPage() {
             Pricing Concepts
           </h1>
           <p className="text-sm text-cmp-gray max-w-md mx-auto">
-            Three working approaches to the DTF item-price calculator.
-            Choose a concept to evaluate.
+            The working approach to the DTF item-price calculator.
           </p>
           <p className="mt-3 text-xs tracking-[0.25em] uppercase text-cmp-gray/60 font-display">
             Built. Different.
@@ -58,7 +43,7 @@ export default function ConceptsPage() {
         </div>
 
         {/* Concept Cards */}
-        <div className="w-full max-w-3xl grid gap-4 sm:grid-cols-3">
+        <div className="w-full max-w-3xl grid gap-4 sm:grid-cols-1">
           {concepts.map((concept) => {
             const inner = (
               <div

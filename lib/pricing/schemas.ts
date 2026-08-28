@@ -19,7 +19,10 @@ export const ItemPriceInputSchema = z.object({
   productCost: z.number().min(0),
   quantity: z.number().int().min(1),
   productCostMultiplier: z.number().default(2),
-  tierPriceLane: z.enum(["T1", "T2", "T3", "T4"]).default("T1"),
+  // No default here: the lane must be resolved by the caller (either the
+  // client's requested lane, or the first active lane of the active pricing
+  // config) — never hard-coded, since which lane is "first" is admin-defined.
+  tierPriceLane: z.string().min(1).max(20),
 });
 
 export type ItemPriceInput = z.infer<typeof ItemPriceInputSchema>;

@@ -9,8 +9,6 @@ const VIEWPORTS = [
 const ROUTES = [
   { path: "/", name: "Quote Desk Primary" },
   { path: "/concepts/quote-desk", name: "Quote Desk" },
-  { path: "/concepts/guided-builder", name: "Guided Builder" },
-  { path: "/concepts/command-center", name: "Command Center" },
 ] as const;
 
 for (const viewport of VIEWPORTS) {

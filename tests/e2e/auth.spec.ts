@@ -59,7 +59,7 @@ test.describe("Auth disabled (default E2E mode)", () => {
 
   test("flat-fee API returns valid data without auth", async ({ request }) => {
     const response = await request.post("/api/quote/flat-fee", {
-      data: { service: "Sleeve Print", orderQuantity: 84 },
+      data: { service: "sleeve_print", orderQuantity: 84 },
     });
     expect(response.status()).toBe(200);
     const data = await response.json();

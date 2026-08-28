@@ -24,7 +24,7 @@ function staffRequest(body: unknown) {
   );
 }
 
-const validBody = { service: "Sleeve Print", orderQuantity: 84 };
+const validBody = { service: "sleeve_print", orderQuantity: 84 };
 
 describe("flat-fee route manager gate", () => {
   const saved = {
@@ -119,5 +119,55 @@ describe("flat-fee route manager gate", () => {
 
     expect(data.engineCogs).toBeDefined();
     expect(data.grossMargin).toBeDefined();
+  });
+
+  it("applies validated Manager labor and override controls server-side", async () => {
+    env.NODE_ENV = "development";
+    delete env.VERCEL_ENV;
+    env.CMP_ALLOW_LOCAL_MANAGER_MODE = "true";
+    delete env.CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW;
+
+    const res = await POST(
+      managerRequest({
+        ...validBody,
+        extraOperatorMinutesPerShirt: 2,
+        extraDesignerMinutesPerOrder: 5,
+        manualOverride: 9,
+      })
+    );
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.effectivePrice).toBe(9);
+    expect(data.status).toBe("Manual override");
+    expect(data.extraOperatorLabor).toBeCloseTo(0.5, 10);
+    expect(data.extraDesignerLabor).toBeGreaterThan(0);
+    expect(data.engineCogs).toBeGreaterThan(2.1023);
+    expect(data.operatorOperatingCost).toBeCloseTo(0.19397707100591716, 12);
+  });
+
+  it("ignores Manager controls for a Staff projection and exposes no audit fields", async () => {
+    env.NODE_ENV = "production";
+    env.VERCEL_ENV = "production";
+    delete env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+    delete env.CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW;
+
+    const res = await POST(
+      staffRequest({
+        ...validBody,
+        extraOperatorMinutesPerShirt: 100,
+        extraDesignerMinutesPerOrder: 100,
+        manualOverride: 99,
+      })
+    );
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.effectivePrice).toBe(6);
+    expect(data.engineCogs).toBeUndefined();
+    expect(data.extraOperatorLabor).toBeUndefined();
+    expect(data.extraDesignerLabor).toBeUndefined();
+    // Staff never receive the internal pricing derivation status label.
+    expect(data.status).toBeUndefined();
   });
 });
