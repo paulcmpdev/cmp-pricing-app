@@ -126,7 +126,10 @@ test.describe("authenticated production boundary", () => {
     await expect(
       page.getByText("Authenticated production · Session only").first()
     ).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Additional Location Matrix" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "DTF Pricing Matrix" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Additional Prints / DTF Flat Fees" })
+    ).toBeVisible();
   });
 
   test("sign out removes the authenticated session", async ({ context, page }) => {

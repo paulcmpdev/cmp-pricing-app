@@ -9,15 +9,17 @@ import {
   type CatalogVariantCostResolution,
 } from "@/lib/server/vendor-catalog/repository";
 import { validateQuantity } from "@/lib/pricing/quantity";
-import { isAdditionalLocationsPreviewEnabled } from "@/lib/server/pricing-preview-gate";
 import {
   requireRole,
   resolveAuthenticatedProjection,
 } from "@/lib/server/auth/route-guards";
+import { resolveActiveConfig } from "@/lib/server/pricing-config/resolver";
+import type { DtfMatrixConfig } from "@/lib/server/pricing-config/schemas";
 
 /**
  * Accepts either { productCost } directly or { sku } to resolve cost server-side.
  * The client never needs to know product costs.
+ * Lane is validated dynamically against active config.
  */
 const RequestBodySchema = z
   .object({
@@ -26,7 +28,9 @@ const RequestBodySchema = z
     productCost: z.number().min(0).optional(),
     quantity: z.number().int().min(1),
     productCostMultiplier: z.number().default(2),
-    tierPriceLane: z.enum(["T1", "T2", "T3", "T4"]).default("T1"),
+    // Optional: when omitted, resolved server-side to the first active lane
+    // of the active DTF config (never a hard-coded lane key).
+    tierPriceLane: z.string().min(1).max(20).optional(),
   })
   .refine((d) => {
     const sourceCount = [d.sku, d.productCost, d.catalogVariantId].filter(
@@ -67,6 +71,48 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+
+  // Resolve active DTF config for tiers and lanes
+  const configResult = await resolveActiveConfig("dtf_matrix");
+  if (!configResult.ok) {
+    return NextResponse.json(
+      { error: { _form: [configResult.error] } },
+      { status: 503 }
+    );
+  }
+
+  const dtfConfig: DtfMatrixConfig =
+    configResult.source === "database"
+      ? (configResult.version.data as DtfMatrixConfig)
+      : configResult.data as DtfMatrixConfig;
+
+  // Resolve lane: use the requested lane if it's active, otherwise default
+  // to the first active lane of the active config (never a hard-coded key).
+  const activeLanes = dtfConfig.lanes.filter((l) => l.active);
+  const activeLaneKeys = new Set(activeLanes.map((l) => l.key));
+  const requestedLane = parsed.data.tierPriceLane;
+
+  if (requestedLane != null && !activeLaneKeys.has(requestedLane)) {
+    return NextResponse.json(
+      {
+        error: {
+          tierPriceLane: [
+            `Unknown pricing lane "${requestedLane}". Available: ${[...activeLaneKeys].join(", ")}`,
+          ],
+        },
+      },
+      { status: 422 }
+    );
+  }
+
+  if (activeLanes.length === 0) {
+    return NextResponse.json(
+      { error: { _form: ["No active pricing lanes are configured."] } },
+      { status: 503 }
+    );
+  }
+
+  const tierPriceLane = requestedLane ?? activeLanes[0].key;
 
   let productCost = parsed.data.productCost;
   let vendorCatalogProvenance: CatalogVariantCostResolution | undefined;
@@ -141,7 +187,7 @@ export async function POST(request: NextRequest) {
       productCost,
       quantity: parsed.data.quantity,
       productCostMultiplier: parsed.data.productCostMultiplier,
-      tierPriceLane: parsed.data.tierPriceLane,
+      tierPriceLane,
     });
   } catch (e) {
     const message = e instanceof z.ZodError
@@ -158,10 +204,13 @@ export async function POST(request: NextRequest) {
   const projection = await resolveAuthenticatedProjection(request);
   const isManager = projection === "manager";
 
+  // Pass dynamic tiers from config
+  const dynamicTiers = dtfConfig.tiers;
+
   try {
     const result = isManager
-      ? quoteItemManager(input)
-      : quoteItemStaff(input);
+      ? quoteItemManager(input, dynamicTiers)
+      : quoteItemStaff(input, dynamicTiers);
 
     return NextResponse.json({
       ...result,

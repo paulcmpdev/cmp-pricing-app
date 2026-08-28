@@ -1,17 +1,18 @@
 import { notFound, redirect } from "next/navigation";
 import {
-  isPricingPreviewEnabled,
-  isAdditionalLocationsPreviewEnabled,
+  isPricingConfigEditorEnabled,
   isAuthenticatedProductionFeaturesEnabled,
 } from "@/lib/server/pricing-preview-gate";
 import { isUserAccessEnabled, requirePageAccess } from "@/lib/server/auth/access-resolution";
 import { isAuthEnabled } from "@/lib/server/auth/policy";
+import { isPricingConfigEnabled } from "@/lib/server/pricing-config/gate";
 import AdminHeader from "../_components/AdminHeader";
 import PricingPreview from "../_components/PricingPreview";
-import AdditionalLocationMatrixPreview from "../_components/AdditionalLocationMatrixPreview";
+import DtfMatrixEditor from "../_components/DtfMatrixEditor";
+import AdditionalPrintsEditor from "../_components/AdditionalPrintsEditor";
 
 export const metadata = {
-  title: "Pricing Preview - CMP Pricing",
+  title: "Pricing Configuration - CMP Pricing",
 };
 
 export const dynamic = "force-dynamic";
@@ -22,11 +23,11 @@ export default async function PricingPage() {
     if (!guard.allowed) redirect(guard.redirect);
   }
 
-  if (!isPricingPreviewEnabled()) {
+  if (!isPricingConfigEditorEnabled()) {
     notFound();
   }
 
-  const showAdditionalLocations = isAdditionalLocationsPreviewEnabled();
+  const configEnabled = isPricingConfigEnabled();
 
   return (
     <div className="min-h-screen flex flex-col bg-neutral-900">
@@ -38,11 +39,14 @@ export default async function PricingPage() {
       />
       <main className="flex-1 px-4 py-5 max-w-7xl mx-auto w-full space-y-8">
         <PricingPreview />
-        {showAdditionalLocations && (
-          <section aria-labelledby="al-matrix-heading">
-            <AdditionalLocationMatrixPreview />
-          </section>
-        )}
+
+        <section aria-labelledby="dtf-matrix-heading">
+          <DtfMatrixEditor persistenceEnabled={configEnabled} />
+        </section>
+
+        <section aria-labelledby="ap-matrix-heading">
+          <AdditionalPrintsEditor persistenceEnabled={configEnabled} />
+        </section>
       </main>
     </div>
   );

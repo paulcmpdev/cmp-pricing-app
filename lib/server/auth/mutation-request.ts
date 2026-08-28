@@ -13,7 +13,8 @@ type MutationBodyResult =
  * Content-Length.
  */
 export async function readSameOriginJsonMutation(
-  request: NextRequest
+  request: NextRequest,
+  maxBytes: number = MAX_MUTATION_BODY_BYTES
 ): Promise<MutationBodyResult> {
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.startsWith("application/json")) {
@@ -29,7 +30,7 @@ export async function readSameOriginJsonMutation(
   const declaredLength = request.headers.get("content-length");
   if (declaredLength) {
     const size = Number(declaredLength);
-    if (!Number.isInteger(size) || size < 0 || size > MAX_MUTATION_BODY_BYTES) {
+    if (!Number.isInteger(size) || size < 0 || size > maxBytes) {
       return {
         ok: false,
         response: NextResponse.json(
@@ -82,7 +83,7 @@ export async function readSameOriginJsonMutation(
       const { done, value } = await reader.read();
       if (done) break;
       bytesRead += value.byteLength;
-      if (bytesRead > MAX_MUTATION_BODY_BYTES) {
+      if (bytesRead > maxBytes) {
         await reader.cancel();
         return {
           ok: false,

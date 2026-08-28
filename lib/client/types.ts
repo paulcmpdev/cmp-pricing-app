@@ -71,7 +71,6 @@ export interface VendorCatalogPublicVariant {
 export interface StaffFlatFeeQuote {
   service: string;
   effectivePrice: number;
-  status: string;
   billableQuantity: number;
   addOnTotal: number;
   requiresManagerReview?: boolean;
@@ -82,6 +81,8 @@ export interface ManagerFlatFeeQuote extends StaffFlatFeeQuote {
   enginePrice: number;
   policyFloor: number;
   grossMargin: number;
+  // Detailed internal derivation status — manager-only.
+  status: string;
   operatorOperatingCost: number;
   extraOperatorLabor: number;
   extraDesignerLabor: number;

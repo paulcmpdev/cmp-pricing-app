@@ -20,21 +20,6 @@ import {
 } from "@/lib/client/vendor-catalog-helpers";
 
 // ---------------------------------------------------------------------------
-// Flat-fee services from the contract (names only, no cost data)
-// ---------------------------------------------------------------------------
-const FLAT_FEE_SERVICES = [
-  "Additional Large Print",
-  "Sleeve Print",
-  "Bottom / Upper Chest",
-  "Vertical Print",
-  "Name",
-  "Number",
-  "Name + Number",
-  "Standard Package",
-  "Premium Package",
-] as const;
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 interface Props {
@@ -135,6 +120,11 @@ export default function QuoteDeskClient({
   const [flatFeeError, setFlatFeeError] = useState<string | null>(null);
   const [managerReviewRequired, setManagerReviewRequired] = useState(false);
 
+  // Dynamic services fetched from /api/quote/options
+  const [availableServices, setAvailableServices] = useState<Array<{key: string; name: string; effectivePrice: number}>>([]);
+  const [selectedLane, setSelectedLane] = useState("");
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+
   // Abort controllers for debounced requests
   const itemAbort = useRef<AbortController | null>(null);
   const flatFeeAbort = useRef<AbortController | null>(null);
@@ -201,8 +191,41 @@ export default function QuoteDeskClient({
     };
   }, [bumpLocationGeneration, nextItemToken]);
 
+  // Fetch available services and pricing lanes on mount
+  useEffect(() => {
+    let active = true;
+    fetch("/api/quote/options")
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+        if (!Array.isArray(data.services) || !Array.isArray(data.lanes) || data.lanes.length === 0) {
+          throw new Error("Pricing options response is incomplete.");
+        }
+        if (!active) return;
+        setAvailableServices(data.services);
+        setSelectedLane((current) =>
+          data.lanes.some((lane: { key: string }) => lane.key === current)
+            ? current
+            : data.lanes[0].key
+        );
+        setOptionsError(null);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setAvailableServices([]);
+        setSelectedLane("");
+        setOptionsError(
+          error instanceof Error ? error.message : "Pricing options are unavailable."
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // --- Item price calculation ---
   const calculateItem = useCallback(async () => {
+    if (!selectedLane) return;
     const qty = parseStrictPositiveInt(quantity);
     if (qty === null) return;
 
@@ -218,6 +241,7 @@ export default function QuoteDeskClient({
       if (isNaN(cost) || cost < 0) return;
       body = { productCost: cost, quantity: qty };
     }
+    body.tierPriceLane = selectedLane;
 
     itemAbort.current?.abort();
     const controller = new AbortController();
@@ -268,7 +292,7 @@ export default function QuoteDeskClient({
         setItemLoading(false);
       }
     }
-  }, [productMode, selectedSku, selectedCatalogVariantId, manualCost, quantity, role, nextItemToken]);
+  }, [productMode, selectedSku, selectedCatalogVariantId, manualCost, quantity, role, nextItemToken, selectedLane]);
 
   useEffect(() => {
     if (productMode !== "vendor") return;
@@ -552,6 +576,12 @@ export default function QuoteDeskClient({
   const selectedLocationServices = new Set(
     additionalLocations.map((loc) => loc.service).filter(Boolean)
   );
+  const serviceDisplayName = useCallback(
+    (serviceKey: string) =>
+      availableServices.find((service) => service.key === serviceKey)?.name ??
+      serviceKey,
+    [availableServices]
+  );
 
   // Recalculate all location quotes when quantity or role changes
   useEffect(() => {
@@ -697,6 +727,11 @@ export default function QuoteDeskClient({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-3 lg:py-4">
+      {optionsError && (
+        <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
+          Pricing options are unavailable: {optionsError}
+        </div>
+      )}
       {/* Role toggle — evaluation mode only */}
       {!isPrimary && (
         <div className="flex items-center justify-end mb-3 gap-2">
@@ -1050,7 +1085,7 @@ export default function QuoteDeskClient({
                 Decoration
               </h2>
               <span className="text-cmp-gray text-[11px]">
-                DTF · Average · 10&times;10 in · 1 loc · Tier Matrix T1
+                DTF · Average · 10&times;10 in · 1 loc · Tier Matrix {selectedLane || "—"}
               </span>
               <span className="text-[10px] text-cmp-gray/60 ml-auto hidden sm:inline">
                 Fixed P0
@@ -1086,8 +1121,8 @@ export default function QuoteDeskClient({
 
               <div className="space-y-2">
                 {additionalLocations.map((loc) => {
-                  const availableServices = FLAT_FEE_SERVICES.filter(
-                    (s) => s === loc.service || !selectedLocationServices.has(s)
+                  const rowServices = availableServices.filter(
+                    (s) => s.key === loc.service || !selectedLocationServices.has(s.key)
                   );
                   return (
                     <div
@@ -1102,9 +1137,9 @@ export default function QuoteDeskClient({
                         aria-label={`Service for location ${loc.id}`}
                       >
                         <option value="">Select service...</option>
-                        {availableServices.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
+                        {rowServices.map((s) => (
+                          <option key={s.key} value={s.key}>
+                            {s.name}
                           </option>
                         ))}
                       </select>
@@ -1153,9 +1188,9 @@ export default function QuoteDeskClient({
                     onChange={(e) => setSelectedService(e.target.value)}
                   >
                     <option value="">None</option>
-                    {FLAT_FEE_SERVICES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
+                    {availableServices.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.name}
                       </option>
                     ))}
                   </select>
@@ -1303,7 +1338,7 @@ export default function QuoteDeskClient({
                     loc.quote ? (
                       <Row
                         key={loc.id}
-                        label={loc.service}
+                        label={serviceDisplayName(loc.service)}
                         value={formatCurrency(loc.quote.effectivePrice)}
                       />
                     ) : null
@@ -1327,7 +1362,7 @@ export default function QuoteDeskClient({
                       loc.quote && isManagerFlatFee(loc.quote) ? (
                         <Row
                           key={`cogs-${loc.id}`}
-                          label={`${loc.service} COGS`}
+                          label={`${serviceDisplayName(loc.service)} COGS`}
                           value={formatCurrency(loc.quote.engineCogs)}
                         />
                       ) : null
@@ -1485,7 +1520,7 @@ export default function QuoteDeskClient({
                 id="flat-fee-summary-heading"
                 className="text-xs font-bold uppercase tracking-wider text-cmp-charcoal mb-3 font-display"
               >
-                Add-On: {selectedService}
+                Add-On: {serviceDisplayName(selectedService)}
               </h2>
 
               {flatFeeError && (
@@ -1514,7 +1549,7 @@ export default function QuoteDeskClient({
                       {formatCurrency(flatFeeQuote.effectivePrice)}
                     </p>
                     <p className="text-[10px] text-cmp-gray mt-0.5">
-                      {flatFeeQuote.status}
+                      Approved price
                     </p>
                   </div>
 
@@ -1536,6 +1571,7 @@ export default function QuoteDeskClient({
                       <p className="text-[10px] text-cmp-warning font-medium uppercase tracking-wider mb-1.5">
                         Internal Details
                       </p>
+                      <Row label="Status" value={flatFeeQuote.status} />
                       <Row label="Engine COGS" value={formatCurrency(flatFeeQuote.engineCogs)} />
                       <Row label="Engine Price" value={formatCurrency(flatFeeQuote.enginePrice)} />
                       <Row label="Policy Floor" value={formatCurrency(flatFeeQuote.policyFloor)} />

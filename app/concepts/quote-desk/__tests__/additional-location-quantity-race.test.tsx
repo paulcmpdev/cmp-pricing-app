@@ -44,7 +44,7 @@ function makeLocationQuote(qty: number) {
   const effectivePrice = qty === 84 ? 1.25 : qty === 200 ? 0.95 : 1.10;
   const engineCogs = qty === 84 ? 0.65 : qty === 200 ? 0.45 : 0.55;
   return {
-    service: "Sleeve Print",
+    service: "sleeve_print",
     effectivePrice,
     status: "ok",
     billableQuantity: qty,
@@ -77,6 +77,23 @@ function createFetchRouter(fetchMock: ReturnType<typeof vi.fn>) {
   let flatFeeCallCount = 0;
 
   fetchMock.mockImplementation((url: string) => {
+    if (typeof url === "string" && url.includes("/api/quote/options")) {
+      return Promise.resolve(
+        okJson({
+          lanes: [{ key: "T1", label: "T1" }],
+          services: [
+            {
+              key: "sleeve_print",
+              name: "Sleeve Print",
+              description: "One standard sleeve print",
+              type: "service",
+              effectivePrice: 6,
+            },
+          ],
+          minimumBillableQuantity: 12,
+        })
+      );
+    }
     if (typeof url === "string" && url.includes("/api/quote/flat-fee")) {
       flatFeeCallCount++;
       const d = flatFeeQ.shift();
@@ -94,6 +111,21 @@ function createFetchRouter(fetchMock: ReturnType<typeof vi.fn>) {
     enqueueLocation: () => { const d = deferred<unknown>(); flatFeeQ.push(d); return d; },
     get flatFeeCallCount() { return flatFeeCallCount; },
   };
+}
+
+async function renderQuoteDesk() {
+  render(
+    <QuoteDeskClient
+      catalog={CATALOG}
+      mode="evaluation"
+      additionalLocationsEnabled={true}
+    />
+  );
+  // Quote calculations wait for the staff-safe pricing options response.
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -120,13 +152,7 @@ describe("additional-location quantity race condition", () => {
     // ---------------------------------------------------------------
     // 1. Render & establish baseline
     // ---------------------------------------------------------------
-    render(
-      <QuoteDeskClient
-        catalog={CATALOG}
-        mode="evaluation"
-        additionalLocationsEnabled={true}
-      />
-    );
+    await renderQuoteDesk();
 
     // Select product
     fireEvent.change(document.getElementById("product-select")!, {
@@ -147,7 +173,7 @@ describe("additional-location quantity race condition", () => {
     fireEvent.click(screen.getByTestId("add-location-btn"));
     const locationRow = screen.getByTestId(/^location-row-/);
     fireEvent.change(within(locationRow).getByRole("combobox"), {
-      target: { value: "Sleeve Print" },
+      target: { value: "sleeve_print" },
     });
 
     const locD84 = router.enqueueLocation();
@@ -214,13 +240,7 @@ describe("additional-location quantity race condition", () => {
   it("old item promise resolving after newer one cannot overwrite current quote", async () => {
     const router = createFetchRouter(fetchMock);
 
-    render(
-      <QuoteDeskClient
-        catalog={CATALOG}
-        mode="evaluation"
-        additionalLocationsEnabled={true}
-      />
-    );
+    await renderQuoteDesk();
 
     fireEvent.change(document.getElementById("product-select")!, {
       target: { value: "TEE-100" },
@@ -270,13 +290,7 @@ describe("additional-location quantity race condition", () => {
   it("old location promise resolving after newer one cannot overwrite current row quote", async () => {
     const router = createFetchRouter(fetchMock);
 
-    render(
-      <QuoteDeskClient
-        catalog={CATALOG}
-        mode="evaluation"
-        additionalLocationsEnabled={true}
-      />
-    );
+    await renderQuoteDesk();
 
     fireEvent.change(document.getElementById("product-select")!, {
       target: { value: "TEE-100" },
@@ -288,7 +302,7 @@ describe("additional-location quantity race condition", () => {
     fireEvent.click(screen.getByTestId("add-location-btn"));
     const locationRow = screen.getByTestId(/^location-row-/);
     fireEvent.change(within(locationRow).getByRole("combobox"), {
-      target: { value: "Sleeve Print" },
+      target: { value: "sleeve_print" },
     });
 
     const locD84 = router.enqueueLocation();
@@ -334,13 +348,7 @@ describe("additional-location quantity race condition", () => {
   it("removed location rows cannot be resurrected by late-arriving responses", async () => {
     const router = createFetchRouter(fetchMock);
 
-    render(
-      <QuoteDeskClient
-        catalog={CATALOG}
-        mode="evaluation"
-        additionalLocationsEnabled={true}
-      />
-    );
+    await renderQuoteDesk();
 
     fireEvent.change(document.getElementById("product-select")!, {
       target: { value: "TEE-100" },
@@ -354,7 +362,7 @@ describe("additional-location quantity race condition", () => {
     const locationRow = screen.getByTestId(/^location-row-/);
     const locationId = locationRow.getAttribute("data-testid")!.replace("location-row-", "");
     fireEvent.change(within(locationRow).getByRole("combobox"), {
-      target: { value: "Sleeve Print" },
+      target: { value: "sleeve_print" },
     });
 
     const locD = router.enqueueLocation();
@@ -380,13 +388,7 @@ describe("additional-location quantity race condition", () => {
   it("decimal quantity clears populated item and location quotes without firing invalid requests", async () => {
     const router = createFetchRouter(fetchMock);
 
-    render(
-      <QuoteDeskClient
-        catalog={CATALOG}
-        mode="evaluation"
-        additionalLocationsEnabled={true}
-      />
-    );
+    await renderQuoteDesk();
 
     fireEvent.change(document.getElementById("product-select")!, {
       target: { value: "TEE-100" },
@@ -402,7 +404,7 @@ describe("additional-location quantity race condition", () => {
     fireEvent.click(screen.getByTestId("add-location-btn"));
     const locationRow = screen.getByTestId(/^location-row-/);
     fireEvent.change(within(locationRow).getByRole("combobox"), {
-      target: { value: "Sleeve Print" },
+      target: { value: "sleeve_print" },
     });
 
     const locD84 = router.enqueueLocation();
@@ -430,13 +432,7 @@ describe("additional-location quantity race condition", () => {
   it("blank quantity clears populated totals and valid recovery recalculates item and locations", async () => {
     const router = createFetchRouter(fetchMock);
 
-    render(
-      <QuoteDeskClient
-        catalog={CATALOG}
-        mode="evaluation"
-        additionalLocationsEnabled={true}
-      />
-    );
+    await renderQuoteDesk();
 
     fireEvent.change(document.getElementById("product-select")!, {
       target: { value: "TEE-100" },
@@ -452,7 +448,7 @@ describe("additional-location quantity race condition", () => {
     fireEvent.click(screen.getByTestId("add-location-btn"));
     const locationRow = screen.getByTestId(/^location-row-/);
     fireEvent.change(within(locationRow).getByRole("combobox"), {
-      target: { value: "Sleeve Print" },
+      target: { value: "sleeve_print" },
     });
 
     const locD84 = router.enqueueLocation();

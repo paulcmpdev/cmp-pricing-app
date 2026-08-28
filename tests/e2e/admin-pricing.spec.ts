@@ -159,14 +159,23 @@ test.describe("Admin Pricing Preview", () => {
       errorFreePage: page,
     }) => {
       await page.goto("/admin/pricing");
-      await expect(page.getByRole("heading", { name: "Additional Location Matrix" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "DTF Pricing Matrix" })).toBeVisible();
       await expect(
-        page.getByText(/edits are not saved or published and do not affect Quote Desk pricing/i)
+        page.getByRole("heading", { name: "Additional Prints / DTF Flat Fees" })
+      ).toBeVisible();
+      await expect(
+        page.getByText(/preview only.*this view does not affect quote desk pricing/i)
+      ).toBeVisible();
+      await expect(
+        page.getByText(/preview only.*persistence is disabled\. changes cannot be saved/i).first()
       ).toBeVisible();
       const bodyText = await page.locator("body").innerText();
       expect(bodyText).toContain("Preview Only");
-      expect(bodyText).toContain("do not affect Quote Desk");
-      // Should not have save/publish/upload controls (buttons or actions)
+      expect(bodyText).toContain("does not affect Quote Desk pricing");
+      // Should not have save/publish/upload controls (buttons or actions) —
+      // persistence is disabled in this Playwright environment, so the DTF
+      // and Additional Prints editors render "Preview Only" instead of a
+      // "Save Changes" button.
       expect(bodyText?.toLowerCase()).not.toContain("save changes");
       expect(bodyText?.toLowerCase()).not.toContain("publish changes");
       expect(bodyText?.toLowerCase()).not.toContain("upload");

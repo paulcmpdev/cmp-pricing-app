@@ -431,135 +431,89 @@ test.describe("Additional Locations (Quote Desk)", () => {
   });
 });
 
-test.describe("Additional Location Matrix (Admin)", () => {
-  test("renders matrix heading and 104 rows note when enabled", async ({
+test.describe("DTF Matrix / Additional Prints Editors (Admin)", () => {
+  // The old bulk Additional Location Matrix preview (#al-margin-*,
+  // al-change-count, /api/admin/pricing/additional-locations/preview) was
+  // removed in favor of the persisted DTF Matrix and Additional Prints
+  // editors below. Coverage here targets the replacement UI.
+  const dtfSection = (page: import("@playwright/test").Page) =>
+    page.locator('section[aria-labelledby="dtf-matrix-heading"]');
+  const apSection = (page: import("@playwright/test").Page) =>
+    page.locator('section[aria-labelledby="ap-matrix-heading"]');
+
+  test("renders DTF Pricing Matrix and Additional Prints headings when enabled", async ({
     errorFreePage: page,
   }) => {
     await page.goto("/admin/pricing");
     await expect(
-      page.getByRole("heading", { name: /additional location matrix/i })
+      page.getByRole("heading", { name: "DTF Pricing Matrix" })
     ).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText("104 rows")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Additional Prints / DTF Flat Fees" })
+    ).toBeVisible();
   });
 
-  test("shows Preview Only disclaimer with component margin clarification", async ({ errorFreePage: page }) => {
-    await page.goto("/admin/pricing");
-    await page.waitForTimeout(2000);
-    const previewOnlyTexts = page.getByText(/Preview Only/);
-    await expect(previewOnlyTexts.first()).toBeVisible();
-    // Verify the disclaimer clarifies these are NOT final-item contribution targets
-    await expect(page.getByText(/not represent or guarantee/i)).toBeVisible();
-  });
-
-  test("editing a margin shows dirty state with change count", async ({
+  test("shows Preview Only disclaimer when persistence is disabled", async ({
     errorFreePage: page,
   }) => {
     await page.goto("/admin/pricing");
     await expect(
-      page.getByRole("heading", { name: /additional location matrix/i })
+      page.getByRole("heading", { name: "DTF Pricing Matrix" })
     ).toBeVisible({ timeout: 15000 });
 
-    // Edit T1 margin
-    const t1Input = page.locator("#al-margin-T1");
-    await t1Input.fill("60");
-    await page.waitForTimeout(500);
-
-    // Should show change count
-    await expect(page.getByTestId("al-change-count")).toBeVisible({ timeout: 5000 });
+    await expect(dtfSection(page).getByText("Preview Only").first()).toBeVisible();
+    await expect(apSection(page).getByText("Preview Only").first()).toBeVisible();
+    await expect(page.getByText(/persistence is disabled/i).first()).toBeVisible();
   });
 
-  test("invalid 0.58 margin pauses preview and reset clears the error", async ({
+  test("editing the DTF matrix shows Preview Only instead of Save Changes", async ({
     errorFreePage: page,
   }) => {
     await page.goto("/admin/pricing");
     await expect(
-      page.getByRole("heading", { name: /additional location matrix/i })
+      page.getByRole("heading", { name: "DTF Pricing Matrix" })
     ).toBeVisible({ timeout: 15000 });
 
-    const t1Input = page.locator("#al-margin-T1");
-    await t1Input.fill("0.58");
-
-    await expect(page.getByText(/enter percentage points/i)).toBeVisible();
-    await expect(page.getByTestId("al-preview-paused")).toBeVisible();
-    await expect(page.getByTestId("al-change-count")).toContainText("1 change");
-
-    await page.getByRole("button", { name: /reset all margin edits/i }).click();
-
-    await expect(page.getByTestId("al-preview-paused")).not.toBeVisible();
-    await expect(page.getByText(/enter percentage points/i)).not.toBeVisible();
-    await expect(t1Input).toHaveValue("58");
+    await dtfSection(page).getByRole("button", { name: "Edit Matrix" }).click();
+    await expect(
+      dtfSection(page).getByText("Preview Only", { exact: true })
+    ).toBeVisible();
+    await expect(dtfSection(page).getByRole("button", { name: "Save Changes" })).toHaveCount(0);
   });
 
-  test("valid 58.5 margin recovers and changed cells show current draft delta", async ({
+  test("Version History is unavailable in Preview Only mode and never surfaces a Not found error", async ({
     errorFreePage: page,
   }) => {
     await page.goto("/admin/pricing");
     await expect(
-      page.getByRole("heading", { name: /additional location matrix/i })
+      page.getByRole("heading", { name: "DTF Pricing Matrix" })
     ).toBeVisible({ timeout: 15000 });
 
-    await page.locator("#al-margin-T1").fill("0.58");
-    await expect(page.getByTestId("al-preview-paused")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Version History" })).toHaveCount(0);
+    await expect(page.getByText(/version history unavailable/i).first()).toBeVisible();
+    await expect(page.getByText("Not found.")).toHaveCount(0);
+  });
 
-    await page.locator("#al-margin-T1").fill("58.5");
-    await expect(page.getByTestId("al-preview-paused")).not.toBeVisible({
-      timeout: 5000,
+  test("Additional Prints editor supports Columns visibility toggles", async ({
+    errorFreePage: page,
+  }) => {
+    await page.goto("/admin/pricing");
+    await expect(
+      page.getByRole("heading", { name: "Additional Prints / DTF Flat Fees" })
+    ).toBeVisible({ timeout: 15000 });
+
+    await apSection(page).getByRole("button", { name: "Edit Matrix" }).click();
+    await apSection(page).getByRole("button", { name: "Columns" }).click();
+    const descriptionToggle = page.getByRole("checkbox", {
+      name: "Toggle Description column",
     });
-
-    const changedCells = page.locator("[data-testid$='-T1']").filter({
-      hasText: "Current",
-    });
-    await expect(changedCells.first()).toBeVisible({ timeout: 10000 });
-    await expect(changedCells.first()).toContainText("Draft");
-    await expect(changedCells.first()).toContainText("Delta");
-  });
-
-  test("Reset All clears margin edits", async ({ errorFreePage: page }) => {
-    await page.goto("/admin/pricing");
-    await expect(
-      page.getByRole("heading", { name: /additional location matrix/i })
-    ).toBeVisible({ timeout: 15000 });
-
-    // Edit a margin
-    const t1Input = page.locator("#al-margin-T1");
-    await t1Input.fill("60");
-    await expect(page.getByTestId("al-change-count")).toBeVisible({ timeout: 5000 });
-
-    // Reset
-    await page.getByRole("button", { name: /reset all margin edits/i }).click();
-    await page.waitForTimeout(500);
-
-    // Change count should disappear
-    await expect(page.getByTestId("al-change-count")).not.toBeVisible({ timeout: 5000 });
-  });
-
-  test("Reset Lane resets only one lane", async ({ errorFreePage: page }) => {
-    await page.goto("/admin/pricing");
-    await expect(
-      page.getByRole("heading", { name: /additional location matrix/i })
-    ).toBeVisible({ timeout: 15000 });
-
-    // Edit T1 and T2
-    await page.locator("#al-margin-T1").fill("60");
-    await page.locator("#al-margin-T2").fill("55");
-    await page.waitForTimeout(500);
-
-    // Reset T1 only
-    await page.getByRole("button", { name: /reset T1 margin/i }).click();
-    await page.waitForTimeout(500);
-
-    // T1 should be back to default
-    await expect(page.locator("#al-margin-T1")).toHaveValue("58");
-    // T2 should still be edited
-    await expect(page.locator("#al-margin-T2")).toHaveValue("55");
+    await expect(descriptionToggle).toBeChecked();
   });
 });
 
-test.describe("Production / unflagged gates", () => {
-  test("additional locations API is available on the flagged Playwright server", async ({ request }) => {
+test.describe("Deleted Additional Location Matrix preview API", () => {
+  test("legacy admin preview endpoint no longer exists", async ({ request }) => {
     const response = await request.get("/api/admin/pricing/additional-locations/preview");
-    expect(response.status()).toBe(200);
-    const data = await response.json();
-    expect(data.rows).toHaveLength(104);
+    expect(response.status()).toBe(404);
   });
 });

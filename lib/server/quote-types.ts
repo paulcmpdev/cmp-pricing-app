@@ -42,7 +42,6 @@ export interface ManagerItemQuoteResponse {
 export interface StaffFlatFeeQuoteResponse {
   service: string;
   effectivePrice: number;
-  status: string;
   billableQuantity: number;
   addOnTotal: number;
 }
@@ -54,6 +53,8 @@ export interface ManagerFlatFeeQuoteResponse {
   policyFloor: number;
   effectivePrice: number;
   grossMargin: number;
+  // Detailed internal derivation status (e.g. "Manual override below
+  // engine price") — manager-only. Staff never receive this field.
   status: string;
   billableQuantity: number;
   addOnTotal: number;
@@ -83,6 +84,7 @@ export const MANAGER_ONLY_FLAT_FEE_KEYS: readonly string[] = [
   "enginePrice",
   "policyFloor",
   "grossMargin",
+  "status",
   "operatorOperatingCost",
   "extraOperatorLabor",
   "extraDesignerLabor",

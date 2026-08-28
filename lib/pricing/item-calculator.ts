@@ -1,10 +1,10 @@
 import "server-only";
 import { d } from "./money";
 import { calculatePooledLength, optimizePurchase } from "./dtf-optimizer";
+import { lookupTierFromConfig } from "./tier-lookup";
 import contract from "@/lib/fixtures/pricing-contract.json";
 import type { ItemPriceInput, ItemPriceOutput } from "./schemas";
 
-const tierMatrix = contract.dtfEngine.tierPriceMatrix;
 const COMMISSION_RATE = d(contract.pricingPolicy.commissionReserveRate);
 const OPERATING_COST_PER_PLACEMENT = d(
   contract.dtfEngine.productionModes.find((m) => m.key === "average")!
@@ -15,11 +15,12 @@ const TRANSFER_WIDTH = contract.dtfEngine.capturedTransferSizeIn.width;
 const TRANSFER_HEIGHT = contract.dtfEngine.capturedTransferSizeIn.height;
 const PRINT_LOCATIONS = 1;
 
-function findTier(quantity: number) {
-  const tier = tierMatrix.find((t) => quantity >= t.minQty && quantity <= t.maxQty);
-  if (!tier) throw new Error(`No tier found for quantity ${quantity}`);
-  return tier;
-}
+export type DynamicTier = {
+  tier: string;
+  minQty: number;
+  maxQty: number | null;
+  prices: Record<string, number>;
+};
 
 function computeDecorationCogs(quantity: number): number {
   const totalLength = calculatePooledLength([
@@ -32,12 +33,24 @@ function computeDecorationCogs(quantity: number): number {
   return materialPerGarment.plus(operatingCost).plus(laborPerGarment).toNumber();
 }
 
-export function calculateItemPrice(input: ItemPriceInput): ItemPriceOutput {
+/**
+ * Calculate item price.
+ * When dynamicTiers is provided, uses those for price lookup instead of contract tiers.
+ */
+export function calculateItemPrice(
+  input: ItemPriceInput,
+  dynamicTiers?: DynamicTier[]
+): ItemPriceOutput {
   const { productCost, quantity, productCostMultiplier, tierPriceLane } = input;
-  const tier = findTier(quantity);
+  const tier = lookupTierFromConfig(quantity, dynamicTiers);
+
+  const lanePrice = tier.prices[tierPriceLane];
+  if (lanePrice == null) {
+    throw new Error(`Lane "${tierPriceLane}" not found in tier "${tier.tier}"`);
+  }
 
   const productSellD = d(productCost).times(productCostMultiplier);
-  const decorationSellD = d(tier.prices[tierPriceLane]);
+  const decorationSellD = d(lanePrice);
   const salesPriceD = productSellD.plus(decorationSellD);
   const commissionD = salesPriceD.times(COMMISSION_RATE);
   const decoCogsD = d(computeDecorationCogs(quantity));

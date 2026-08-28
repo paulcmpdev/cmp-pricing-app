@@ -2,15 +2,15 @@ import { describe, it, expect } from "vitest";
 import {
   quoteItemStaff,
   quoteItemManager,
-  quoteFlatFeeStaff,
-  quoteFlatFeeManager,
+  quoteFlatFeeFromConfigStaff,
+  quoteFlatFeeFromConfigManager,
 } from "../quote-service";
 import {
   MANAGER_ONLY_ITEM_KEYS,
   MANAGER_ONLY_FLAT_FEE_KEYS,
 } from "../quote-types";
 import { calculateItemPrice } from "@/lib/pricing/item-calculator";
-import { calculateFlatFeePrice } from "@/lib/pricing/flat-fee-calculator";
+import { getBaselineAdditionalPrints } from "../pricing-config/baseline";
 import {
   getItemForwardScenario,
   type ItemForwardOutputs,
@@ -31,12 +31,16 @@ const ITEM_INPUT = {
   tierPriceLane: itemInputs.tierPriceLane as "T1" | "T2" | "T3" | "T4",
 };
 
+const baselineServices = getBaselineAdditionalPrints().services;
+const SLEEVE_PRINT = baselineServices.find((s) => s.key === "sleeve_print")!;
+
 const FLAT_FEE_INPUT = {
-  service: "Sleeve Print",
+  serviceKey: SLEEVE_PRINT.key,
   orderQuantity: 12,
+  minimumBillableQuantity: 12,
   extraOperatorMinutesPerShirt: 0,
   extraDesignerMinutesPerOrder: 0,
-  manualOverride: null,
+  manualOverride: null as number | null,
 };
 
 // ---------------------------------------------------------------------------
@@ -121,12 +125,11 @@ describe("Manager item quote preserves full engine output", () => {
 // ---------------------------------------------------------------------------
 
 describe("Staff flat-fee quote serialization boundary", () => {
-  const staffResult = quoteFlatFeeStaff(FLAT_FEE_INPUT);
+  const staffResult = quoteFlatFeeFromConfigStaff(SLEEVE_PRINT, FLAT_FEE_INPUT);
 
   it("includes customer-facing fields", () => {
     expect(staffResult).toHaveProperty("service");
     expect(staffResult).toHaveProperty("effectivePrice");
-    expect(staffResult).toHaveProperty("status");
     expect(staffResult).toHaveProperty("billableQuantity");
     expect(staffResult).toHaveProperty("addOnTotal");
   });
@@ -138,24 +141,17 @@ describe("Staff flat-fee quote serialization boundary", () => {
     }
   );
 
-  it("has exactly 5 keys", () => {
-    expect(Object.keys(staffResult)).toHaveLength(5);
+  it("has exactly 4 keys", () => {
+    expect(Object.keys(staffResult)).toHaveLength(4);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Manager Flat-Fee Quote: preserves all existing engine behavior
+// Manager Flat-Fee Quote: preserves admin-approved config values
 // ---------------------------------------------------------------------------
 
-describe("Manager flat-fee quote preserves full engine output", () => {
-  const managerResult = quoteFlatFeeManager(FLAT_FEE_INPUT);
-  const directResult = calculateFlatFeePrice(FLAT_FEE_INPUT);
-
-  it("matches direct engine call exactly", () => {
-    for (const key of Object.keys(directResult) as (keyof typeof directResult)[]) {
-      expect(managerResult[key]).toBe(directResult[key]);
-    }
-  });
+describe("Manager flat-fee quote preserves full config-driven output", () => {
+  const managerResult = quoteFlatFeeFromConfigManager(SLEEVE_PRINT, FLAT_FEE_INPUT);
 
   it("includes all manager-only keys", () => {
     for (const key of MANAGER_ONLY_FLAT_FEE_KEYS) {
@@ -163,8 +159,17 @@ describe("Manager flat-fee quote preserves full engine output", () => {
     }
   });
 
-  it("engineCogs is positive", () => {
-    expect(managerResult.engineCogs).toBeGreaterThan(0);
+  it("enginePrice and policyFloor pass through from the admin config", () => {
+    expect(managerResult.enginePrice).toBe(SLEEVE_PRINT.enginePrice);
+    expect(managerResult.policyFloor).toBe(SLEEVE_PRINT.policyFloor);
+  });
+
+  it("engineCogs equals the config COGS baseline when no session labor is added", () => {
+    expect(managerResult.engineCogs).toBe(SLEEVE_PRINT.cogs);
+  });
+
+  it("effectivePrice equals the config effective price with no override", () => {
+    expect(managerResult.effectivePrice).toBe(SLEEVE_PRINT.effectivePrice);
   });
 
   it("grossMargin is between 0 and 1", () => {
@@ -189,7 +194,7 @@ describe("Manager flat-fee with manual override", () => {
     extraDesignerMinutesPerOrder: 15,
   };
 
-  const managerResult = quoteFlatFeeManager(overrideInput);
+  const managerResult = quoteFlatFeeFromConfigManager(SLEEVE_PRINT, overrideInput);
 
   it("effectivePrice equals override", () => {
     expect(managerResult.effectivePrice).toBe(10.0);
@@ -209,10 +214,11 @@ describe("Manager flat-fee with manual override", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Staff flat-fee with override: override reflected but no internal fields
+// Staff flat-fee: session-local override/labor controls are manager-only and
+// never affect the staff-facing price, even if smuggled into the input.
 // ---------------------------------------------------------------------------
 
-describe("Staff flat-fee with manual override still omits internals", () => {
+describe("Staff flat-fee ignores session-local override/labor inputs", () => {
   const overrideInput = {
     ...FLAT_FEE_INPUT,
     manualOverride: 10.0,
@@ -220,14 +226,10 @@ describe("Staff flat-fee with manual override still omits internals", () => {
     extraDesignerMinutesPerOrder: 15,
   };
 
-  const staffResult = quoteFlatFeeStaff(overrideInput);
+  const staffResult = quoteFlatFeeFromConfigStaff(SLEEVE_PRINT, overrideInput);
 
-  it("effectivePrice equals override", () => {
-    expect(staffResult.effectivePrice).toBe(10.0);
-  });
-
-  it("status is Manual override", () => {
-    expect(staffResult.status).toBe("Manual override");
+  it("effectivePrice still equals the admin-approved config price, not the smuggled override", () => {
+    expect(staffResult.effectivePrice).toBe(SLEEVE_PRINT.effectivePrice);
   });
 
   it.each(MANAGER_ONLY_FLAT_FEE_KEYS)(
