@@ -1,8 +1,21 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fmtCurrency } from "./pricing-helpers";
+import { tierCostKey } from "@/lib/pricing/dtf-margin-math";
 import VersionHistoryPanel from "./VersionHistoryPanel";
+import DtfPriceCell, { type CellInputError } from "./dtf-matrix/DtfPriceCell";
+import DtfPricingContext from "./dtf-matrix/DtfPricingContext";
+import DtfQuoteImpact, {
+  type QuoteFieldErrors,
+  type QuoteInputs,
+} from "./dtf-matrix/DtfQuoteImpact";
+import { useDtfMatrixPreview } from "./dtf-matrix/useDtfMatrixPreview";
+
+const FALLBACK_MAX_QUANTITY = 5000;
+// Mirrors DtfQuoteInputSchema.productCost in lib/pricing/dtf-matrix-preview.ts.
+// Above this the preview API answers 400, so catching it inline keeps the
+// admin out of a pointless round-trip.
+const MAX_PRODUCT_COST = 100_000;
 
 type DtfLane = { key: string; label: string; margin: number; active: boolean };
 type DtfTier = {
@@ -24,10 +37,59 @@ type Props = {
   persistenceEnabled: boolean;
 };
 
+/**
+ * Parent-side identity for one price/GM% cell. Row index keeps two rows that
+ * transiently share a quantity span from colliding; the span makes the key
+ * change whenever a row's content is replaced (tier deleted, span re-typed),
+ * which is what lets the cell drop a typed-GM% buffer that no longer applies.
+ */
+function cellKeyFor(tierIdx: number, tier: DtfTier, laneKey: string): string {
+  return `${tierIdx}|${tierCostKey(tier.minQty, tier.maxQty)}|${laneKey}`;
+}
+
 function formatQtyRange(min: number, max: number | null): string {
   if (max === null) return `${min.toLocaleString()}+`;
   if (min === max) return String(min);
   return `${min.toLocaleString()}-${max.toLocaleString()}`;
+}
+
+/**
+ * Lane "Default GM%" is persisted as a fraction in [0, 1). Clamp here so a
+ * stray 100 (or a cleared field) can't produce a value the save schema
+ * rejects only later, at the end of a long edit.
+ */
+function parseLanePercent(raw: string): number {
+  const percent = parseInt(raw, 10);
+  if (!Number.isFinite(percent)) return 0;
+  return Math.min(Math.max(percent, 0), 99) / 100;
+}
+
+function validateQuoteInputs(
+  inputs: QuoteInputs,
+  maxQuantity: number,
+  maxProductCost: number
+): QuoteFieldErrors {
+  const errors: QuoteFieldErrors = {};
+  const cost = parseFloat(inputs.productCost);
+  const qty = Number(inputs.quantity);
+
+  if (
+    inputs.productCost.trim() === "" ||
+    !Number.isFinite(cost) ||
+    cost < 0 ||
+    cost > maxProductCost
+  ) {
+    errors.productCost = `Enter a cost of 0-${maxProductCost.toLocaleString()}.`;
+  }
+  if (
+    inputs.quantity.trim() === "" ||
+    !Number.isInteger(qty) ||
+    qty < 1 ||
+    qty > maxQuantity
+  ) {
+    errors.quantity = `Whole number 1-${maxQuantity.toLocaleString()}.`;
+  }
+  return errors;
 }
 
 export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
@@ -41,7 +103,17 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  // Live input errors owned by individual price/GM% cells, keyed by
+  // cellKeyFor(). A cell that rejects a typed GM% leaves the price at its
+  // prior valid value, so the draft alone looks saveable — this registry is
+  // the only thing that knows otherwise.
+  const [cellErrors, setCellErrors] = useState<Record<string, CellInputError>>({});
   const [rollbackInProgress, setRollbackInProgress] = useState(false);
+  const [quoteInputs, setQuoteInputs] = useState<QuoteInputs>({
+    productCost: "4.80",
+    quantity: "174",
+    lane: "",
+  });
   const dirtyRef = useRef(false);
 
   const isDirty = useMemo(() => {
@@ -167,6 +239,32 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
     }
   }, [config, editing, validateConfig]);
 
+  // Stable across renders so cells can report from an effect without looping.
+  const handleCellValidityChange = useCallback(
+    (cellKey: string, cellError: CellInputError | null) => {
+      setCellErrors((prev) => {
+        if (!cellError) {
+          if (!(cellKey in prev)) return prev;
+          const { [cellKey]: _removed, ...rest } = prev;
+          return rest;
+        }
+        const existing = prev[cellKey];
+        if (
+          existing &&
+          existing.label === cellError.label &&
+          existing.message === cellError.message
+        ) {
+          return prev;
+        }
+        return { ...prev, [cellKey]: cellError };
+      });
+    },
+    []
+  );
+
+  const cellErrorEntries = useMemo(() => Object.entries(cellErrors), [cellErrors]);
+  const hasCellErrors = cellErrorEntries.length > 0;
+
   const handleEdit = () => {
     if (rollbackInProgress) return;
     setEditing(true);
@@ -182,6 +280,10 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
 
   const handleSave = async () => {
     if (!config || !persistenceEnabled || rollbackInProgress) return;
+    // Belt-and-braces with the disabled Save button: a cell input error means
+    // the draft's prices no longer match what the admin last typed, so the
+    // draft is not the thing they mean to persist.
+    if (hasCellErrors) return;
     const errors = validateConfig(config);
     if (errors.length > 0) {
       setValidationErrors(errors);
@@ -321,12 +423,19 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
     let key = `T${idx}`;
     while (existingKeys.has(key)) key = `T${++idx}`;
     const newLane: DtfLane = { key, label: key, margin: 0.3, active: true };
+    // Seed from the last existing lane rather than $0, so every cell in the
+    // new column starts above labor recovery and shows a real DTF GM%
+    // instead of an immediate below-cost error.
+    const seedKey = config.lanes[config.lanes.length - 1]?.key;
     setConfig({
       ...config,
       lanes: [...config.lanes, newLane],
       tiers: config.tiers.map((t) => ({
         ...t,
-        prices: { ...t.prices, [key]: 0 },
+        prices: {
+          ...t.prices,
+          [key]: (seedKey != null ? t.prices[seedKey] : undefined) ?? 0,
+        },
       })),
     });
   };
@@ -348,6 +457,69 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
   const activeLanes = useMemo(
     () => config?.lanes.filter((l) => l.active) ?? [],
     [config]
+  );
+
+  // Keep the Quote Impact lane selector pointed at a lane that still exists —
+  // lanes can be renamed, deactivated, or deleted mid-draft.
+  useEffect(() => {
+    if (activeLanes.length === 0) return;
+    if (activeLanes.some((lane) => lane.key === quoteInputs.lane)) return;
+    setQuoteInputs((prev) => ({ ...prev, lane: activeLanes[0].key }));
+  }, [activeLanes, quoteInputs.lane]);
+
+  // Both client bounds mirror DtfQuoteInputSchema (quantity from the
+  // contract's maximumWithoutManagerReview, cost from its 100,000 cap). The
+  // preview API re-validates them, so this is UX guidance, not the authority —
+  // but it must not be *stricter*, or a legal quote would never be sent.
+  const quoteErrors = useMemo(
+    () =>
+      validateQuoteInputs(quoteInputs, FALLBACK_MAX_QUANTITY, MAX_PRODUCT_COST),
+    [quoteInputs]
+  );
+
+  const quoteRequest = useMemo(() => {
+    if (quoteErrors.productCost || quoteErrors.quantity) return null;
+    if (!quoteInputs.lane) return null;
+    return {
+      productCost: parseFloat(quoteInputs.productCost),
+      quantity: Number(quoteInputs.quantity),
+      lane: quoteInputs.lane,
+    };
+  }, [quoteInputs, quoteErrors]);
+
+  const {
+    preview,
+    quoteImpact,
+    recalculating,
+    error: previewError,
+  } = useDtfMatrixPreview({
+    draft: config,
+    saved: originalConfig,
+    quote: quoteRequest,
+    enabled: config != null,
+  });
+
+  const costBases = preview?.costBases ?? null;
+  const roundingIncrement = preview?.pricingPolicy.roundingIncrement ?? "0.05";
+  const maxQuantity =
+    preview?.dtfContext.maxSupportedQuantity ?? FALLBACK_MAX_QUANTITY;
+
+  /**
+   * Cost basis for a tier, keyed by its quantity span only — so a rename or
+   * reorder reuses the cached basis instead of blanking the GM% column while
+   * the next preview round-trips.
+   */
+  const basisForTier = useCallback(
+    (tier: DtfTier) =>
+      costBases?.[tierCostKey(tier.minQty, tier.maxQty)] ?? null,
+    [costBases]
+  );
+
+  const handleQuoteChange = useCallback(
+    (field: keyof QuoteInputs, value: string) => {
+      setQuoteInputs((prev) => ({ ...prev, [field]: value }));
+    },
+    []
   );
 
   if (loading && !config) {
@@ -414,7 +586,14 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
               {persistenceEnabled ? (
                 <button
                   onClick={handleSave}
-                  disabled={saving || validationErrors.length > 0 || !isDirty}
+                  disabled={
+                    saving || validationErrors.length > 0 || hasCellErrors || !isDirty
+                  }
+                  title={
+                    hasCellErrors
+                      ? "Fix the highlighted price / DTF GM% cells before saving."
+                      : undefined
+                  }
                   className="text-xs px-3 py-1.5 rounded bg-cyan-700 text-white hover:bg-cyan-600 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {saving ? "Saving..." : "Save Changes"}
@@ -452,6 +631,23 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
           <ul className="mt-1 list-disc list-inside">
             {validationErrors.map((e, i) => (
               <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {hasCellErrors && editing && (
+        <div
+          className="rounded-md bg-red-900/30 border border-red-700 p-3 text-xs text-red-300"
+          role="alert"
+          data-testid="dtf-cell-input-errors"
+        >
+          <strong>Unsaved cell input:</strong> fix the highlighted price / DTF
+          GM% cells before saving — their prices still hold the last valid
+          value, not what you typed.
+          <ul className="mt-1 list-disc list-inside">
+            {cellErrorEntries.map(([key, cellError]) => (
+              <li key={key}>{cellError.label}</li>
             ))}
           </ul>
         </div>
@@ -503,16 +699,19 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                   <span className="text-[10px] text-neutral-400 font-mono">{lane.key}</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-neutral-500">Margin:</span>
+                  <span
+                    className="text-[10px] text-neutral-500"
+                    title="Target DTF GM% used to seed prices for new tiers in this lane. Each cell's actual GM% is derived from its own price."
+                  >
+                    Default GM%:
+                  </span>
                   <input
                     type="number"
                     value={Math.round(lane.margin * 100)}
-                    onChange={(e) =>
-                      updateLane(idx, "margin", parseInt(e.target.value, 10) / 100 || 0)
-                    }
+                    onChange={(e) => updateLane(idx, "margin", parseLanePercent(e.target.value))}
                     min="0"
                     max="99"
-                    className="w-12 text-[10px] bg-neutral-700 border border-neutral-600 rounded px-1 py-0.5 text-neutral-200"
+                    className="w-12 text-[10px] bg-neutral-700 border border-neutral-600 rounded px-1 py-0.5 text-neutral-200 min-h-[28px]"
                     aria-label={`Lane ${lane.key} margin percent`}
                   />
                   <span className="text-[10px] text-neutral-500">%</span>
@@ -524,7 +723,9 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
       )}
 
       {/* Matrix table */}
-      <div className="overflow-x-auto">
+      {/* Scrolls horizontally within its own box so a dense matrix never
+          forces page-level overflow on mobile. */}
+      <div className="overflow-x-auto max-w-full -mx-1 px-1">
         <table className="w-full text-xs" aria-labelledby="dtf-matrix-heading">
           <thead>
             <tr className="border-b border-neutral-700">
@@ -532,11 +733,17 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                 Tier
               </th>
               <th className="text-left py-2 px-2 text-neutral-400 font-medium">Qty Range</th>
+              <th
+                className="text-left py-2 px-2 text-neutral-400 font-medium"
+                title="Where this tier's DTF cost basis came from, and the worst-case quantity it was costed at."
+              >
+                Basis
+              </th>
               {activeLanes.map((lane) => (
-                <th key={lane.key} className="text-right py-2 px-2 text-neutral-400 font-medium min-w-[80px]">
+                <th key={lane.key} className="text-right py-2 px-2 text-neutral-400 font-medium min-w-[112px]">
                   {lane.label}
                   <div className="text-[10px] font-normal text-neutral-500">
-                    {Math.round(lane.margin * 100)}%
+                    Price / DTF GM%
                   </div>
                 </th>
               ))}
@@ -546,6 +753,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
           <tbody>
             {config.tiers.map((tier, tierIdx) => {
               const isLast = tierIdx === config.tiers.length - 1;
+              const tierBasis = basisForTier(tier);
               return (
                 <tr key={tierIdx} className="border-b border-neutral-800 hover:bg-neutral-800/50">
                   <td className="py-1.5 px-2 text-neutral-200 font-medium sticky left-0 bg-neutral-900 z-10">
@@ -598,21 +806,37 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                       formatQtyRange(tier.minQty, tier.maxQty)
                     )}
                   </td>
+                  <td className="py-1.5 px-2 text-neutral-500 whitespace-nowrap">
+                    {tierBasis ? (
+                      <span
+                        className="text-[10px] font-mono"
+                        title={tierBasis.basis}
+                        data-testid={`dtf-tier-basis-${tier.tier}`}
+                      >
+                        {tierBasis.source === "contract" ? "contract" : "engine"}
+                        <span className="text-neutral-600"> · q{tierBasis.costingQty}</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-neutral-600">--</span>
+                    )}
+                  </td>
                   {activeLanes.map((lane) => (
-                    <td key={lane.key} className="py-1.5 px-2 text-right font-mono text-neutral-200">
-                      {editing ? (
-                        <input
-                          type="number"
-                          value={tier.prices[lane.key] ?? ""}
-                          onChange={(e) => updateTierPrice(tierIdx, lane.key, e.target.value)}
-                          step="0.05"
-                          min="0"
-                          className="w-16 text-xs text-right bg-neutral-800 border border-neutral-600 rounded px-1.5 py-0.5 text-neutral-200"
-                          aria-label={`Tier ${tier.tier} ${lane.label} price`}
-                        />
-                      ) : (
-                        fmtCurrency(tier.prices[lane.key] ?? 0)
-                      )}
+                    <td key={lane.key} className="py-1.5 px-2 text-right font-mono text-neutral-200 align-top">
+                      <DtfPriceCell
+                        cellKey={cellKeyFor(tierIdx, tier, lane.key)}
+                        tierLabel={tier.tier}
+                        laneKey={lane.key}
+                        laneLabel={lane.label}
+                        price={tier.prices[lane.key]}
+                        basis={tierBasis}
+                        roundingIncrement={roundingIncrement}
+                        editing={editing}
+                        disabled={rollbackInProgress}
+                        onPriceChange={(value) =>
+                          updateTierPrice(tierIdx, lane.key, String(value))
+                        }
+                        onValidityChange={handleCellValidityChange}
+                      />
                     </td>
                   ))}
                   {editing && (
@@ -653,6 +877,28 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
           </>
         )}
       </div>
+
+      <DtfPricingContext preview={preview} />
+
+      {previewError && (
+        <div
+          className="rounded-md bg-amber-900/20 border border-amber-700/40 px-3 py-2 text-xs text-amber-300"
+          role="status"
+        >
+          {previewError}
+        </div>
+      )}
+
+      <DtfQuoteImpact
+        inputs={quoteInputs}
+        errors={quoteErrors}
+        lanes={activeLanes.map((lane) => ({ key: lane.key, label: lane.label }))}
+        result={quoteImpact}
+        recalculating={recalculating}
+        maxQuantity={maxQuantity}
+        maxProductCost={MAX_PRODUCT_COST}
+        onChange={handleQuoteChange}
+      />
     </div>
   );
 }

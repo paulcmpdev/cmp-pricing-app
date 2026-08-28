@@ -1,19 +1,11 @@
 import "server-only";
 import { d } from "./money";
-import { calculatePooledLength, optimizePurchase } from "./dtf-optimizer";
+import { computeDecorationCogs } from "./dtf-cogs";
 import { lookupTierFromConfig } from "./tier-lookup";
 import contract from "@/lib/fixtures/pricing-contract.json";
 import type { ItemPriceInput, ItemPriceOutput } from "./schemas";
 
 const COMMISSION_RATE = d(contract.pricingPolicy.commissionReserveRate);
-const OPERATING_COST_PER_PLACEMENT = d(
-  contract.dtfEngine.productionModes.find((m) => m.key === "average")!
-    .operatingCostPerPlacement!
-);
-const SHARED_PROJECT_LABOR = d(contract.dtfEngine.sharedProjectLaborPerOrder);
-const TRANSFER_WIDTH = contract.dtfEngine.capturedTransferSizeIn.width;
-const TRANSFER_HEIGHT = contract.dtfEngine.capturedTransferSizeIn.height;
-const PRINT_LOCATIONS = 1;
 
 export type DynamicTier = {
   tier: string;
@@ -21,17 +13,6 @@ export type DynamicTier = {
   maxQty: number | null;
   prices: Record<string, number>;
 };
-
-function computeDecorationCogs(quantity: number): number {
-  const totalLength = calculatePooledLength([
-    { widthIn: TRANSFER_WIDTH, heightIn: TRANSFER_HEIGHT, totalCount: quantity },
-  ]);
-  const purchaseCost = optimizePurchase(totalLength);
-  const materialPerGarment = d(purchaseCost).div(quantity);
-  const operatingCost = OPERATING_COST_PER_PLACEMENT.times(PRINT_LOCATIONS);
-  const laborPerGarment = SHARED_PROJECT_LABOR.div(quantity);
-  return materialPerGarment.plus(operatingCost).plus(laborPerGarment).toNumber();
-}
 
 /**
  * Calculate item price.
