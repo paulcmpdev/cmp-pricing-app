@@ -48,7 +48,7 @@ function previewPayload(quote?: unknown) {
         spacingIn: 0.25,
         maxSupportedQuantity: 5000,
       },
-      costBases: { "1:+": BASIS },
+      costBases: { "1:+": BASIS, "1:100": BASIS, "101:+": BASIS },
       tiers: [
         {
           tier: "1+",
@@ -143,6 +143,15 @@ type FetchCall = { url: string; body: unknown };
  */
 function mockRoutedFetch(options?: {
   quote?: unknown;
+  config?: {
+    lanes: typeof dtfConfig.lanes;
+    tiers: Array<{
+      tier: string;
+      minQty: number;
+      maxQty: number | null;
+      prices: Record<string, number>;
+    }>;
+  };
   onPreview?: (body: unknown) => Promise<unknown> | undefined;
 }) {
   const calls: FetchCall[] = [];
@@ -156,7 +165,7 @@ function mockRoutedFetch(options?: {
       return Promise.resolve(okJson(previewPayload(options?.quote)));
     }
     return Promise.resolve(
-      okJson({ data: dtfConfig, version: null, source: "baseline" })
+      okJson({ data: options?.config ?? dtfConfig, version: null, source: "baseline" })
     );
   }) as unknown as typeof fetch;
   return calls;
@@ -179,14 +188,21 @@ async function renderEditing(calls = mockRoutedFetch()) {
   // A dispatched preview request is not a painted one. The derived GM% needs
   // the cost basis from the response, so waiting on the derived value is what
   // proves the preview has landed *and* been applied — enter edit mode any
-  // earlier and the GM% column is still "GM --"/disabled.
-  await screen.findByText("GM 50.0%", undefined, { timeout: 3000 });
+  // earlier and the GM% column is still "GM --"/disabled. The table and the
+  // Quantity Inspector both show this read-only value pre-edit, so scope to
+  // the table to keep the query unambiguous.
+  await within(screen.getByTestId("dtf-matrix-table-panel")).findByText(
+    "GM 50.0%",
+    undefined,
+    { timeout: 3000 }
+  );
   fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
   return calls;
 }
 
 beforeEach(() => {
   vi.spyOn(window, "confirm").mockReturnValue(true);
+  Object.defineProperty(window, "innerWidth", { value: 1280, writable: true });
 });
 
 afterEach(() => {
@@ -202,10 +218,13 @@ describe("paired price / DTF GM% cells", () => {
     // The price comes straight from the config, so it is on screen before any
     // preview lands and cannot gate this assertion. The GM% is the pairing
     // being asserted and only exists once the preview's cost basis applies.
+    // Both the matrix table and the Quantity Inspector show the same
+    // read-only value for the selected row, so scope to the table.
+    const table = screen.getByTestId("dtf-matrix-table-panel");
     expect(
-      await screen.findByText("GM 50.0%", undefined, { timeout: 3000 })
+      await within(table).findByText("GM 50.0%", undefined, { timeout: 3000 })
     ).toBeVisible();
-    expect(screen.getByText("$6.50")).toBeVisible();
+    expect(within(table).getByText("$6.50")).toBeVisible();
   });
 
   it("labels both fields distinctly for screen readers and mobile input", async () => {
@@ -266,7 +285,11 @@ describe("floating-point noise in the config price", () => {
     render(<DtfMatrixEditor persistenceEnabled />);
     await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
     // net = 6.55 - 0.50 = 6.05; margin = (6.05 - 3) / 6.05 = 50.4%
-    await screen.findByText("GM 50.4%", undefined, { timeout: 3000 });
+    await within(screen.getByTestId("dtf-matrix-table-panel")).findByText(
+      "GM 50.4%",
+      undefined,
+      { timeout: 3000 }
+    );
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
 
     const price = await screen.findByLabelText("Tier 1+ T1 price");
@@ -375,6 +398,61 @@ describe("editing DTF GM%", () => {
 });
 
 describe("save eligibility with an invalid cell input", () => {
+  it("persists invalid GM text across quantity selection and responsive remounts", async () => {
+    await renderEditing();
+
+    fireEvent.change(screen.getByLabelText("Tier 1+ T2 price"), {
+      target: { value: "7.00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Tier 1+ T1 DTF GM percent")).toBeEnabled()
+    );
+
+    const originalMargin = screen.getByLabelText("Tier 1+ T1 DTF GM percent");
+    fireEvent.change(originalMargin, { target: { value: "100" } });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled()
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Select quantity 101+" }));
+    expect(screen.queryByLabelText("Tier 1+ T1 DTF GM percent")).not.toBeInTheDocument();
+    expect(screen.getByTestId("dtf-cell-input-errors")).toHaveTextContent("Tier 1+ · T1");
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select quantity 1+" }));
+    const restored = screen.getByLabelText("Tier 1+ T1 DTF GM percent");
+    expect(restored).toHaveValue(100);
+    expect(restored).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(/less than 100%/i)).toBeVisible();
+
+    await act(async () => {
+      window.innerWidth = 500;
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(screen.getAllByLabelText("Tier 1+ T1 DTF GM percent")).toHaveLength(1);
+    expect(screen.getByLabelText("Tier 1+ T1 DTF GM percent")).toHaveValue(100);
+    expect(screen.getByLabelText("Tier 1+ T1 DTF GM percent")).toHaveAttribute(
+      "aria-invalid",
+      "true"
+    );
+
+    await act(async () => {
+      window.innerWidth = 1280;
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(screen.getAllByLabelText("Tier 1+ T1 DTF GM percent")).toHaveLength(1);
+    expect(screen.getByLabelText("Tier 1+ T1 DTF GM percent")).toHaveValue(100);
+
+    fireEvent.change(screen.getByLabelText("Tier 1+ T1 DTF GM percent"), {
+      target: { value: "40" },
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("dtf-cell-input-errors")).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeEnabled();
+  });
+
   it("blocks Save while a typed DTF GM% is invalid, even though the price is still valid", async () => {
     const calls = await renderEditing();
 
@@ -849,6 +927,109 @@ describe("preview response ordering", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Tier 1+ T1 DTF GM percent")).toBeEnabled()
     );
+  });
+});
+
+describe("Pricing Studio layout", () => {
+  it("does not render a visible Tier column header", async () => {
+    mockRoutedFetch();
+    render(<DtfMatrixEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
+
+    const table = await screen.findByTestId("dtf-matrix-table-panel");
+    expect(within(table).queryByText("Tier")).not.toBeInTheDocument();
+    expect(within(table).getByText("Quantity")).toBeVisible();
+    expect(within(table).getByText("Basis")).toBeVisible();
+  });
+
+  it("shows a Quantity Inspector alongside the matrix", async () => {
+    mockRoutedFetch();
+    render(<DtfMatrixEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
+
+    const inspector = await screen.findByTestId("dtf-quantity-inspector");
+    expect(within(inspector).getByText("Quantity Inspector")).toBeVisible();
+  });
+
+  it("renders Quote Impact as a section outside the Quantity Inspector", async () => {
+    mockRoutedFetch();
+    render(<DtfMatrixEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
+
+    const inspector = await screen.findByTestId("dtf-quantity-inspector");
+    const quoteHeading = await screen.findByRole("heading", {
+      name: "Quote Impact Preview",
+    });
+    expect(inspector).not.toContainElement(quoteHeading);
+  });
+
+  it("changes the inspector's displayed quantity when a different row is selected", async () => {
+    await renderEditing();
+
+    // Add a second row so there is something else to select.
+    fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
+    const inspector = screen.getByTestId("dtf-quantity-inspector");
+    expect(within(inspector).getByText("1-100")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select quantity 101+" }));
+
+    expect(within(inspector).getByText("101+")).toBeVisible();
+  });
+
+  it("renders expandable mobile quantity cards instead of the desktop table below the lg breakpoint", async () => {
+    mockRoutedFetch();
+    render(<DtfMatrixEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
+
+    await act(async () => {
+      window.innerWidth = 500;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    expect(await screen.findByTestId("dtf-mobile-tier-cards")).toBeInTheDocument();
+    expect(screen.queryByTestId("dtf-matrix-table-panel")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dtf-quantity-inspector")).not.toBeInTheDocument();
+    const summary = screen.getByRole("button", { name: "Select quantity 1+" });
+    expect(summary).toBeVisible();
+    expect(within(summary).getByText("$6.50")).toBeVisible();
+    expect(await within(summary).findByText("T1 · 50.0% GM")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    expect(screen.getAllByLabelText("Tier 1+ T1 price")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Tier 1+ T1 DTF GM percent")).toHaveLength(1);
+
+    await act(async () => {
+      window.innerWidth = 1280;
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(screen.getByTestId("dtf-matrix-table-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("dtf-quantity-inspector")).toBeInTheDocument();
+    expect(screen.queryByTestId("dtf-mobile-tier-cards")).not.toBeInTheDocument();
+    // The desktop inspector is the sole editor; the table and retired mobile
+    // path do not duplicate its editable controls.
+    expect(screen.getAllByLabelText("Tier 1+ T1 price")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Tier 1+ T1 DTF GM percent")).toHaveLength(1);
+  });
+
+  it("initially selects the tier containing the default quote quantity without overriding a later selection", async () => {
+    const tieredConfig = {
+      ...dtfConfig,
+      tiers: [
+        { tier: "1-143", minQty: 1, maxQty: 143, prices: { T1: 7, T2: 6.5 } },
+        { tier: "144-249", minQty: 144, maxQty: 249, prices: { T1: 6.5, T2: 6 } },
+        { tier: "250+", minQty: 250, maxQty: null, prices: { T1: 6, T2: 5.5 } },
+      ],
+    };
+    mockRoutedFetch({ config: tieredConfig });
+    render(<DtfMatrixEditor persistenceEnabled />);
+
+    const inspector = await screen.findByTestId("dtf-quantity-inspector");
+    expect(await within(inspector).findByText("144-249")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Select quantity 250+" }));
+    expect(within(inspector).getByText("250+")).toBeVisible();
+
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "10" } });
+    expect(within(inspector).getByText("250+")).toBeVisible();
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   marginFromPrice,
   priceFromMargin,
@@ -10,7 +10,7 @@ import { fmtCurrency } from "../pricing-helpers";
 
 export type Driver = "price" | "margin";
 
-export type CellInputError = { label: string; message: string };
+export type CellInputError = { rawText: string; label: string; message: string };
 
 type Props = {
   /**
@@ -35,11 +35,13 @@ type Props = {
   roundingIncrement: string;
   editing: boolean;
   disabled: boolean;
+  persistedError?: CellInputError;
   onPriceChange: (price: number) => void;
   /**
    * Reports this cell's typed-GM% input error to the editor so Save can refuse
    * a draft whose visible price is stale relative to what the admin typed.
-   * Called with null to clear — on fix, on reset, and on unmount.
+   * Called with null only for a valid correction. The parent owns persistence
+   * and structural pruning, so unmount is not a validity event.
    */
   onValidityChange: (cellKey: string, error: CellInputError | null) => void;
 };
@@ -82,6 +84,7 @@ export default function DtfPriceCell({
   roundingIncrement,
   editing,
   disabled,
+  persistedError,
   onPriceChange,
   onValidityChange,
 }: Props) {
@@ -89,7 +92,6 @@ export default function DtfPriceCell({
   const [priceText, setPriceText] = useState<string | null>(null);
   // Non-null only while the admin is actively typing a GM%.
   const [marginText, setMarginText] = useState<string | null>(null);
-  const [marginError, setMarginError] = useState<string | null>(null);
   const [driver, setDriver] = useState<Driver | null>(null);
   // The price this cell last produced from a GM% edit. If `price` arrives
   // different from it, the change came from somewhere else (direct price
@@ -106,33 +108,17 @@ export default function DtfPriceCell({
     setLastIdentity(identity);
     setPriceText(null);
     setMarginText(null);
-    setMarginError(null);
     setEmittedPrice(null);
     setDriver(null);
   }
 
   if (marginText !== null && emittedPrice !== null && price !== emittedPrice) {
     setMarginText(null);
-    setMarginError(null);
     setEmittedPrice(null);
   }
 
   const errorLabel = `Tier ${tierLabel} · ${laneLabel}`;
-
-  // Publish the current input error under this cell's parent-side key. Both
-  // effects re-run when `cellKey` changes: React tears down the unregister
-  // effect with the *old* key first, so the registry never keeps an orphan.
-  useEffect(() => {
-    onValidityChange(
-      cellKey,
-      marginError ? { label: errorLabel, message: marginError } : null
-    );
-  }, [cellKey, marginError, errorLabel, onValidityChange]);
-
-  useEffect(
-    () => () => onValidityChange(cellKey, null),
-    [cellKey, onValidityChange]
-  );
+  const marginError = persistedError?.message ?? null;
 
   const derived =
     basis && price != null ? marginFromPrice(basis, price) : null;
@@ -142,7 +128,9 @@ export default function DtfPriceCell({
   const belowCost = derived?.ok ? derived.belowCost : false;
 
   const marginFieldValue =
-    marginText ?? (derivedPercent === null ? "" : Number(derivedPercent).toFixed(1));
+    persistedError?.rawText ??
+    marginText ??
+    (derivedPercent === null ? "" : Number(derivedPercent).toFixed(1));
 
   const priceFieldValue =
     priceText ?? (price == null ? "" : String(cleanPrice(price)));
@@ -156,7 +144,7 @@ export default function DtfPriceCell({
     const num = parseFloat(raw);
     setPriceText(raw);
     setMarginText(null);
-    setMarginError(null);
+    onValidityChange(cellKey, null);
     setEmittedPrice(null);
     setDriver("price");
     onPriceChange(Number.isFinite(num) ? num : 0);
@@ -174,27 +162,39 @@ export default function DtfPriceCell({
     setDriver("margin");
 
     if (raw.trim() === "") {
-      setMarginError(null);
+      onValidityChange(cellKey, null);
       return;
     }
 
     const percent = parseFloat(raw);
     if (!Number.isFinite(percent)) {
-      setMarginError("Enter a number.");
+      onValidityChange(cellKey, {
+        rawText: raw,
+        label: errorLabel,
+        message: "Enter a number.",
+      });
       return;
     }
     if (!basis) {
-      setMarginError("Cost basis unavailable for this tier.");
+      onValidityChange(cellKey, {
+        rawText: raw,
+        label: errorLabel,
+        message: "Cost basis unavailable for this tier.",
+      });
       return;
     }
 
     const result = priceFromMargin(basis, percent / 100, roundingIncrement);
     if (!result.ok) {
-      setMarginError(result.message);
+      onValidityChange(cellKey, {
+        rawText: raw,
+        label: errorLabel,
+        message: result.message,
+      });
       return;
     }
 
-    setMarginError(null);
+    onValidityChange(cellKey, null);
     const next = Number(result.final);
     setEmittedPrice(next);
     onPriceChange(next);

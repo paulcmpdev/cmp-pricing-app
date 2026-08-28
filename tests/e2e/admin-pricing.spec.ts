@@ -12,12 +12,15 @@ async function openPricing(page: Page) {
   await expect(dtfHeading(page)).toBeVisible();
 }
 
-async function editDtfMatrix(page: Page) {
+async function editDtfMatrix(page: Page, quantityLabel = "72-143") {
   await openPricing(page);
   const dtf = dtfSection(page);
   await dtf.getByRole("button", { name: "Edit Matrix" }).click();
+  await dtf
+    .getByRole("button", { name: `Select quantity ${quantityLabel}`, exact: true })
+    .click();
   await expect(
-    dtf.getByLabel("Tier 72-143 T1 DTF GM percent", { exact: true })
+    dtf.getByLabel(`Tier ${quantityLabel} T1 DTF GM percent`, { exact: true })
   ).toBeEditable();
 }
 
@@ -36,7 +39,7 @@ test.describe("Admin Pricing Preview", () => {
       await expect(dtfHeading(page)).toBeVisible();
     });
 
-    test("shows one 23-tier DTF matrix with Additional Prints below it", async ({
+    test("shows one 23-quantity DTF matrix with Additional Prints below it", async ({
       errorFreePage: page,
     }) => {
       await openPricing(page);
@@ -46,8 +49,12 @@ test.describe("Admin Pricing Preview", () => {
         exact: true,
       });
 
-      await expect(dtf.getByRole("table")).toHaveCount(1);
-      await expect(dtf.getByText("23 tiers", { exact: false })).toBeVisible();
+      const matrixPanel = dtf.getByTestId("dtf-matrix-table-panel");
+      const inspector = dtf.getByTestId("dtf-quantity-inspector");
+      const quoteHeading = dtf.getByRole("heading", { name: "Quote Impact Preview" });
+
+      await expect(matrixPanel.getByRole("table")).toHaveCount(1);
+      await expect(dtf.getByText("23 quantities", { exact: false })).toBeVisible();
       await expect(dtf.getByRole("row")).toHaveCount(24);
       await expect(
         dtf.getByRole("row").filter({ hasText: "72-143" }).first()
@@ -55,8 +62,21 @@ test.describe("Admin Pricing Preview", () => {
       await expect(
         dtf.getByRole("row").filter({ hasText: "144-249" }).first()
       ).toBeVisible();
-      await expect(dtf.getByRole("cell", { name: "2500+", exact: true })).toBeVisible();
+      await expect(
+        dtf.getByRole("button", { name: "Select quantity 2500+", exact: true })
+      ).toBeVisible();
+      await expect(inspector).toBeVisible();
+      await expect(inspector.getByRole("heading", { name: "Quantity Inspector" })).toBeVisible();
+      await expect(quoteHeading).toBeVisible();
+      await expect(inspector.getByRole("heading", { name: "Quote Impact Preview" })).toHaveCount(0);
       await expect(additionalHeading).toBeVisible();
+
+      const quoteFollowsWorkspace = await matrixPanel.evaluate(
+        (workspace, quote) =>
+          Boolean(workspace.compareDocumentPosition(quote as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
+        await quoteHeading.elementHandle()
+      );
+      expect(quoteFollowsWorkspace).toBe(true);
 
       const headingOrder = await dtfHeading(page).evaluate(
         (heading, additional) =>
@@ -113,6 +133,7 @@ test.describe("Admin Pricing Preview", () => {
       ).toHaveCount(0);
 
       await dtf.getByRole("button", { name: "Edit Matrix" }).click();
+      await dtf.getByRole("button", { name: "Select quantity 72-143", exact: true }).click();
 
       await expect(dtf.getByLabel("Tier 72-143 T1 price", { exact: true })).toHaveValue("6.55");
       await expect(
@@ -139,7 +160,7 @@ test.describe("Admin Pricing Preview", () => {
     test("DTF GM% edits recalculate a rounded direct price and Quote Impact", async ({
       errorFreePage: page,
     }) => {
-      await editDtfMatrix(page);
+      await editDtfMatrix(page, "144-249");
       const dtf = dtfSection(page);
       const price = dtf.getByLabel("Tier 144-249 T1 price", { exact: true });
       const margin = dtf.getByLabel("Tier 144-249 T1 DTF GM percent", { exact: true });
@@ -214,7 +235,7 @@ test.describe("Admin Pricing Preview", () => {
       await expect(dtf.getByRole("checkbox", { name: "Active" })).toHaveCount(5);
 
       await dtf.getByRole("button", { name: "+ Add Tier" }).click();
-      await expect(dtf.getByText("24 tiers", { exact: false })).toBeVisible();
+      await expect(dtf.getByText("24 quantities", { exact: false })).toBeVisible();
       await expect(dtf.getByRole("button", { name: /Delete tier 2600\+/ })).toBeVisible();
     });
 
@@ -245,6 +266,26 @@ test.describe("Admin Pricing Preview", () => {
     test("has no page-level horizontal overflow at 390x844", async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 844 });
       await openPricing(page);
+
+      const mobileTiers = page.getByTestId("dtf-mobile-tier-cards");
+      const defaultCard = mobileTiers.getByRole("button", {
+        name: "Select quantity 144-249",
+        exact: true,
+      });
+      const collapsedCard = mobileTiers.getByRole("button", {
+        name: "Select quantity 72-143",
+        exact: true,
+      });
+
+      await expect(page.getByTestId("dtf-matrix-table-panel")).toHaveCount(0);
+      await expect(page.getByTestId("dtf-quantity-inspector")).toHaveCount(0);
+      await expect(mobileTiers).toBeVisible();
+      await expect(defaultCard).toHaveAttribute("aria-expanded", "true");
+      await expect(collapsedCard).toHaveAttribute("aria-expanded", "false");
+      await expect(collapsedCard.getByText(/^\$\d+\.\d{2}$/)).toBeVisible();
+      await expect(collapsedCard.getByText(/^T1 · \d+\.\d% GM$/)).toBeVisible();
+      await expect(page.getByTestId("ap-mobile-card-list")).toBeVisible();
+      await expect(page.getByTestId("ap-desktop-table-panel")).toHaveCount(0);
 
       const dimensions = await page.evaluate(() => ({
         document: document.documentElement.scrollWidth,

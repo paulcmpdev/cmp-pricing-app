@@ -214,7 +214,7 @@ describe("fetchConfig deferred-GET race guard", () => {
     await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
-    const priceInput = screen.getByLabelText("Approved price for sleeve_print") as HTMLInputElement;
+    const priceInput = screen.getByLabelText("Decoration Price for sleeve_print") as HTMLInputElement;
     expect(priceInput).toHaveValue(6);
 
     fireEvent.click(screen.getByRole("button", { name: "Simulate Reload" }));

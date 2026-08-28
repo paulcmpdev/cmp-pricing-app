@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { tierCostKey } from "@/lib/pricing/dtf-margin-math";
+import { marginFromPrice, tierCostKey } from "@/lib/pricing/dtf-margin-math";
 import VersionHistoryPanel from "./VersionHistoryPanel";
 import DtfPriceCell, { type CellInputError } from "./dtf-matrix/DtfPriceCell";
 import DtfPricingContext from "./dtf-matrix/DtfPricingContext";
@@ -114,7 +114,21 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
     quantity: "174",
     lane: "",
   });
+  // Selected row for the sticky Quantity Inspector / mobile expanded card.
+  const [selectedTierIdx, setSelectedTierIdx] = useState(0);
+  // Visual-only lane focus (chips + focused column). Never mutates config.
+  const [focusLaneKey, setFocusLaneKey] = useState<string>("");
+  const [isDesktop, setIsDesktop] = useState(true);
+  const initializedTierSelectionRef = useRef(false);
   const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => setIsDesktop(window.innerWidth >= 1024);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
 
   const isDirty = useMemo(() => {
     if (!config || !originalConfig) return false;
@@ -239,7 +253,27 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
     }
   }, [config, editing, validateConfig]);
 
-  // Stable across renders so cells can report from an effect without looping.
+  // Persist errors across selection/responsive unmounts, pruning only cells
+  // that are no longer part of the full editable matrix.
+  useEffect(() => {
+    if (!config) return;
+    const renderableKeys = new Set(
+      config.tiers.flatMap((tier, tierIdx) =>
+        config.lanes
+          .filter((lane) => lane.active)
+          .map((lane) => cellKeyFor(tierIdx, tier, lane.key))
+      )
+    );
+    setCellErrors((prev) => {
+      const next = Object.fromEntries(
+        Object.entries(prev).filter(([key]) => renderableKeys.has(key))
+      );
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [config]);
+
+  // Stable across renders so cell input handlers can update the registry
+  // without changing callback identity.
   const handleCellValidityChange = useCallback(
     (cellKey: string, cellError: CellInputError | null) => {
       setCellErrors((prev) => {
@@ -251,6 +285,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
         const existing = prev[cellKey];
         if (
           existing &&
+          existing.rawText === cellError.rawText &&
           existing.label === cellError.label &&
           existing.message === cellError.message
         ) {
@@ -267,6 +302,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
 
   const handleEdit = () => {
     if (rollbackInProgress) return;
+    setCellErrors({});
     setEditing(true);
     setValidationErrors([]);
   };
@@ -276,6 +312,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
     setConfig(originalConfig ? JSON.parse(JSON.stringify(originalConfig)) : null);
     setEditing(false);
     setValidationErrors([]);
+    setCellErrors({});
   };
 
   const handleSave = async () => {
@@ -308,6 +345,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
       setBootstrapRequired(false);
       setOriginalConfig(JSON.parse(JSON.stringify(config)));
       setEditing(false);
+      setCellErrors({});
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -467,6 +505,36 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
     setQuoteInputs((prev) => ({ ...prev, lane: activeLanes[0].key }));
   }, [activeLanes, quoteInputs.lane]);
 
+  // Keep the lane focus chip pointed at a lane that still exists.
+  useEffect(() => {
+    if (activeLanes.length === 0) return;
+    if (activeLanes.some((lane) => lane.key === focusLaneKey)) return;
+    setFocusLaneKey(activeLanes[0].key);
+  }, [activeLanes, focusLaneKey]);
+
+  // Keep the selected row in range as tiers are added/removed.
+  useEffect(() => {
+    if (!config) return;
+    if (selectedTierIdx > config.tiers.length - 1) {
+      setSelectedTierIdx(Math.max(0, config.tiers.length - 1));
+    }
+  }, [config, selectedTierIdx]);
+
+  // Align the first inspector/card selection with the quote preview's default
+  // quantity. This runs once after the initial config arrives, so later user
+  // selection is never reset by draft edits or background preview responses.
+  useEffect(() => {
+    if (!config || initializedTierSelectionRef.current) return;
+    initializedTierSelectionRef.current = true;
+    const defaultQuantity = Number(quoteInputs.quantity);
+    const defaultTierIdx = config.tiers.findIndex(
+      (tier) =>
+        defaultQuantity >= tier.minQty &&
+        (tier.maxQty === null || defaultQuantity <= tier.maxQty)
+    );
+    if (defaultTierIdx >= 0) setSelectedTierIdx(defaultTierIdx);
+  }, [config, quoteInputs.quantity]);
+
   // Both client bounds mirror DtfQuoteInputSchema (quantity from the
   // contract's maximumWithoutManagerReview, cost from its 100,000 cap). The
   // preview API re-validates them, so this is UX guidance, not the authority —
@@ -540,21 +608,45 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
 
   if (!config) return null;
 
+  const selectedTier = config.tiers[selectedTierIdx] ?? config.tiers[0] ?? null;
+  const selectedTierBasis = selectedTier ? basisForTier(selectedTier) : null;
+  const isDirtyDraft = editing && isDirty;
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+    <div className="space-y-4 rounded-lg border border-neutral-800 bg-neutral-950">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-3 border-b border-neutral-800 px-4 pt-4 pb-3">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-wider text-neutral-200" id="dtf-matrix-heading">
             DTF Pricing Matrix
           </h2>
-          <div className="text-[10px] text-neutral-500 mt-0.5">
-            Source: {source === "database" ? "Database" : "Baseline"}{" "}
-            {version && (
-              <>
-                · v{version.id.slice(0, 8)} by {version.createdBy}{" "}
-                {version.activatedAt && `· Activated ${new Date(version.activatedAt).toLocaleDateString()}`}
-              </>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded border border-cyan-700/40 bg-cyan-900/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+              {source === "database" ? "Database" : "Baseline"}
+              {version && ` · v${version.id.slice(0, 8)}`}
+            </span>
+            {!persistenceEnabled ? (
+              <span className="inline-flex items-center gap-1 rounded border border-amber-700/40 bg-amber-900/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                Preview Only
+              </span>
+            ) : (
+              <span
+                className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  isDirtyDraft
+                    ? "border-amber-700/40 bg-amber-900/20 text-amber-300"
+                    : "border-neutral-700 bg-neutral-800 text-neutral-400"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${isDirtyDraft ? "bg-amber-400" : "bg-emerald-400"}`} />
+                {isDirtyDraft ? "Draft · unsaved edits" : editing ? "Editing · no changes yet" : "Preview · unedited"}
+              </span>
             )}
+            <span className="inline-flex items-center rounded border border-neutral-700 bg-neutral-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+              {config.tiers.length} quantities
+            </span>
+            <span className="inline-flex items-center rounded border border-neutral-700 bg-neutral-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+              {activeLanes.length} lanes
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -571,7 +663,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
               onClick={handleEdit}
               disabled={rollbackInProgress}
               title={rollbackInProgress ? "Rollback in progress — please wait" : undefined}
-              className="text-xs px-3 py-1.5 rounded bg-neutral-700 text-neutral-200 hover:bg-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-xs px-3 py-1.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-200 hover:bg-neutral-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Edit Matrix
             </button>
@@ -579,7 +671,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
             <>
               <button
                 onClick={handleCancel}
-                className="text-xs px-3 py-1.5 rounded bg-neutral-700 text-neutral-300 hover:bg-neutral-600"
+                className="text-xs px-3 py-1.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-300 hover:bg-neutral-700"
               >
                 Cancel
               </button>
@@ -598,13 +690,38 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                 >
                   {saving ? "Saving..." : "Save Changes"}
                 </button>
-              ) : (
-                <span className="text-xs text-amber-400">Preview Only</span>
-              )}
+              ) : null}
             </>
           )}
         </div>
       </div>
+
+      {/* Lane focus chips */}
+      <div className="flex flex-wrap items-center gap-1.5 px-4">
+        <span className="text-[10px] uppercase tracking-wider text-neutral-500 mr-1">
+          Lane focus
+        </span>
+        {config.lanes
+          .filter((lane) => lane.active)
+          .map((lane) => (
+            <button
+              key={lane.key}
+              type="button"
+              onClick={() => setFocusLaneKey(lane.key)}
+              aria-pressed={focusLaneKey === lane.key}
+              className={`inline-flex min-h-[28px] items-center gap-1 rounded px-2.5 py-1 text-[11px] font-semibold border ${
+                focusLaneKey === lane.key
+                  ? "border-cyan-500 bg-cyan-900/20 text-cyan-300"
+                  : "border-neutral-700 bg-neutral-800 text-neutral-400 hover:border-neutral-600"
+              }`}
+            >
+              {lane.label}
+              <span className="text-neutral-500">{Math.round(lane.margin * 100)}%</span>
+            </button>
+          ))}
+      </div>
+
+      <div className="px-4 space-y-4">
 
       {!persistenceEnabled && !editing && (
         <div className="rounded-md bg-amber-900/20 border border-amber-700/40 px-3 py-2 text-xs text-amber-300">
@@ -655,7 +772,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
 
       {/* Lane config (editing mode only) */}
       {editing && (
-        <div className="space-y-2">
+        <div className="space-y-2 rounded-md border border-neutral-800 bg-neutral-900/60 p-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-medium text-neutral-300">Pricing Lanes</h3>
             <button
@@ -722,161 +839,328 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
         </div>
       )}
 
-      {/* Matrix table */}
-      {/* Scrolls horizontally within its own box so a dense matrix never
-          forces page-level overflow on mobile. */}
-      <div className="overflow-x-auto max-w-full -mx-1 px-1">
-        <table className="w-full text-xs" aria-labelledby="dtf-matrix-heading">
-          <thead>
-            <tr className="border-b border-neutral-700">
-              <th className="text-left py-2 px-2 text-neutral-400 font-medium sticky left-0 bg-neutral-900 z-10">
-                Tier
-              </th>
-              <th className="text-left py-2 px-2 text-neutral-400 font-medium">Qty Range</th>
-              <th
-                className="text-left py-2 px-2 text-neutral-400 font-medium"
-                title="Where this tier's DTF cost basis came from, and the worst-case quantity it was costed at."
-              >
-                Basis
-              </th>
-              {activeLanes.map((lane) => (
-                <th key={lane.key} className="text-right py-2 px-2 text-neutral-400 font-medium min-w-[112px]">
-                  {lane.label}
-                  <div className="text-[10px] font-normal text-neutral-500">
-                    Price / DTF GM%
-                  </div>
-                </th>
-              ))}
-              {editing && <th className="w-8" />}
-            </tr>
-          </thead>
-          <tbody>
-            {config.tiers.map((tier, tierIdx) => {
-              const isLast = tierIdx === config.tiers.length - 1;
-              const tierBasis = basisForTier(tier);
-              return (
-                <tr key={tierIdx} className="border-b border-neutral-800 hover:bg-neutral-800/50">
-                  <td className="py-1.5 px-2 text-neutral-200 font-medium sticky left-0 bg-neutral-900 z-10">
-                    {editing ? (
-                      <input
-                        value={tier.tier}
-                        onChange={(e) => updateTierLabel(tierIdx, e.target.value)}
-                        className="w-16 text-xs bg-neutral-800 border border-neutral-600 rounded px-1.5 py-0.5 text-neutral-200"
-                        aria-label={`Tier ${tierIdx + 1} label`}
-                      />
-                    ) : (
-                      tier.tier
-                    )}
-                  </td>
-                  <td className="py-1.5 px-2 text-neutral-400">
-                    {editing ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          value={tier.minQty}
-                          onChange={(e) => updateTierRange(tierIdx, "minQty", e.target.value)}
-                          min="1"
-                          className="w-14 text-xs bg-neutral-800 border border-neutral-600 rounded px-1.5 py-0.5 text-neutral-200"
-                          aria-label={`Tier ${tier.tier} min qty`}
-                        />
-                        <span className="text-neutral-500">–</span>
-                        {tier.maxQty !== null ? (
-                          <input
-                            type="number"
-                            value={tier.maxQty}
-                            onChange={(e) => updateTierRange(tierIdx, "maxQty", e.target.value)}
-                            min={tier.minQty}
-                            className="w-14 text-xs bg-neutral-800 border border-neutral-600 rounded px-1.5 py-0.5 text-neutral-200"
-                            aria-label={`Tier ${tier.tier} max qty`}
-                          />
-                        ) : (
-                          <span className="text-[10px] text-cyan-400">∞</span>
-                        )}
-                        {isLast && (
-                          <button
-                            onClick={() => toggleOpenEnded(tierIdx)}
-                            className="text-[10px] text-neutral-400 hover:text-neutral-200 ml-1"
-                            title={tier.maxQty === null ? "Set upper bound" : "Make open-ended"}
-                          >
-                            {tier.maxQty === null ? "cap" : "∞"}
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      formatQtyRange(tier.minQty, tier.maxQty)
-                    )}
-                  </td>
-                  <td className="py-1.5 px-2 text-neutral-500 whitespace-nowrap">
-                    {tierBasis ? (
-                      <span
-                        className="text-[10px] font-mono"
-                        title={tierBasis.basis}
-                        data-testid={`dtf-tier-basis-${tier.tier}`}
-                      >
-                        {tierBasis.source === "contract" ? "contract" : "engine"}
-                        <span className="text-neutral-600"> · q{tierBasis.costingQty}</span>
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-neutral-600">--</span>
-                    )}
-                  </td>
+      {/* Matrix + Inspector workspace */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 items-start">
+        {isDesktop && (
+          <div
+            data-testid="dtf-matrix-table-panel"
+            className="overflow-x-auto max-w-full -mx-1 px-1 rounded-md border border-neutral-800"
+          >
+            <table className="w-full text-xs" aria-labelledby="dtf-matrix-heading">
+              <thead>
+                <tr className="border-b border-neutral-700 bg-neutral-900">
+                  <th className="text-left py-2 px-2 text-neutral-400 font-medium sticky left-0 bg-neutral-900 z-10">
+                    Quantity
+                  </th>
+                  <th
+                    className="text-left py-2 px-2 text-neutral-400 font-medium"
+                    title="Where this tier's DTF cost basis came from, and the worst-case quantity it was costed at."
+                  >
+                    Basis
+                  </th>
                   {activeLanes.map((lane) => (
-                    <td key={lane.key} className="py-1.5 px-2 text-right font-mono text-neutral-200 align-top">
-                      <DtfPriceCell
-                        cellKey={cellKeyFor(tierIdx, tier, lane.key)}
-                        tierLabel={tier.tier}
-                        laneKey={lane.key}
-                        laneLabel={lane.label}
-                        price={tier.prices[lane.key]}
-                        basis={tierBasis}
-                        roundingIncrement={roundingIncrement}
-                        editing={editing}
-                        disabled={rollbackInProgress}
-                        onPriceChange={(value) =>
-                          updateTierPrice(tierIdx, lane.key, String(value))
-                        }
-                        onValidityChange={handleCellValidityChange}
-                      />
-                    </td>
+                    <th
+                      key={lane.key}
+                      className={`text-right py-2 px-2 font-medium min-w-[112px] ${
+                        focusLaneKey === lane.key ? "text-cyan-300 bg-cyan-900/10" : "text-neutral-400"
+                      }`}
+                    >
+                      {lane.label}
+                      <div className="text-[10px] font-normal text-neutral-500">
+                        Price / DTF GM%
+                      </div>
+                    </th>
                   ))}
-                  {editing && (
-                    <td className="py-1.5 px-1">
-                      <button
-                        onClick={() => deleteTier(tierIdx)}
-                        className="text-red-400 hover:text-red-300 text-[10px]"
-                        aria-label={`Delete tier ${tier.tier}`}
-                      >
-                        ×
-                      </button>
-                    </td>
-                  )}
+                  {editing && <th className="w-8" />}
                 </tr>
+              </thead>
+              <tbody>
+                {config.tiers.map((tier, tierIdx) => {
+                  const isLast = tierIdx === config.tiers.length - 1;
+                  const tierBasis = basisForTier(tier);
+                  const isSelected = tierIdx === selectedTierIdx;
+                  return (
+                    <tr
+                      key={tierIdx}
+                      tabIndex={0}
+                      onClick={() => setSelectedTierIdx(tierIdx)}
+                      onFocus={() => setSelectedTierIdx(tierIdx)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedTierIdx(tierIdx);
+                        }
+                      }}
+                      className={`border-b border-neutral-800 cursor-pointer hover:bg-neutral-800/50 ${
+                        isSelected ? "bg-cyan-900/10" : ""
+                      }`}
+                    >
+                      <td className="py-1.5 px-2 text-neutral-200 font-medium sticky left-0 bg-neutral-900 z-10">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTierIdx(tierIdx)}
+                          aria-label={`Select quantity ${tier.tier}`}
+                          className="text-left hover:text-cyan-300"
+                        >
+                          {formatQtyRange(tier.minQty, tier.maxQty)}
+                        </button>
+                        {editing && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <input
+                              value={tier.tier}
+                              onChange={(e) => updateTierLabel(tierIdx, e.target.value)}
+                              className="w-16 text-[10px] bg-neutral-800 border border-neutral-600 rounded px-1.5 py-0.5 text-neutral-400"
+                              aria-label={`Tier ${tierIdx + 1} label`}
+                              title="Display label for this quantity row"
+                            />
+                            <input
+                              type="number"
+                              value={tier.minQty}
+                              onChange={(e) => updateTierRange(tierIdx, "minQty", e.target.value)}
+                              min="1"
+                              className="w-12 text-[10px] bg-neutral-800 border border-neutral-600 rounded px-1 py-0.5 text-neutral-400"
+                              aria-label={`Tier ${tier.tier} min qty`}
+                            />
+                            <span className="text-neutral-600">–</span>
+                            {tier.maxQty !== null ? (
+                              <input
+                                type="number"
+                                value={tier.maxQty}
+                                onChange={(e) => updateTierRange(tierIdx, "maxQty", e.target.value)}
+                                min={tier.minQty}
+                                className="w-12 text-[10px] bg-neutral-800 border border-neutral-600 rounded px-1 py-0.5 text-neutral-400"
+                                aria-label={`Tier ${tier.tier} max qty`}
+                              />
+                            ) : (
+                              <span className="text-[10px] text-cyan-400">∞</span>
+                            )}
+                            {isLast && (
+                              <button
+                                onClick={() => toggleOpenEnded(tierIdx)}
+                                className="text-[10px] text-neutral-400 hover:text-neutral-200 ml-1"
+                                title={tier.maxQty === null ? "Set upper bound" : "Make open-ended"}
+                              >
+                                {tier.maxQty === null ? "cap" : "∞"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-1.5 px-2 text-neutral-500 whitespace-nowrap">
+                        {tierBasis ? (
+                          <span
+                            className="text-[10px] font-mono"
+                            title={tierBasis.basis}
+                            data-testid={`dtf-tier-basis-${tier.tier}`}
+                          >
+                            {tierBasis.source === "contract" ? "contract" : "engine"}
+                            <span className="text-neutral-600"> · q{tierBasis.costingQty}</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-neutral-600">--</span>
+                        )}
+                      </td>
+                      {activeLanes.map((lane) => (
+                        <td
+                          key={lane.key}
+                          className={`py-1.5 px-2 text-right font-mono text-neutral-200 align-top ${
+                            focusLaneKey === lane.key ? "bg-cyan-900/5" : ""
+                          }`}
+                        >
+                          <DtfPriceCell
+                            cellKey={`${cellKeyFor(tierIdx, tier, lane.key)}|readonly`}
+                            tierLabel={tier.tier}
+                            laneKey={lane.key}
+                            laneLabel={lane.label}
+                            price={tier.prices[lane.key]}
+                            basis={tierBasis}
+                            roundingIncrement={roundingIncrement}
+                            editing={false}
+                            disabled
+                            onPriceChange={() => {}}
+                            onValidityChange={() => {}}
+                          />
+                        </td>
+                      ))}
+                      {editing && (
+                        <td className="py-1.5 px-1">
+                          <button
+                            onClick={() => deleteTier(tierIdx)}
+                            className="text-red-400 hover:text-red-300 text-[10px]"
+                            aria-label={`Delete tier ${tier.tier}`}
+                          >
+                            ×
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {isDesktop && selectedTier && (
+          <aside
+            data-testid="dtf-quantity-inspector"
+            aria-labelledby="dtf-inspector-heading"
+            className="lg:sticky lg:top-4 rounded-md border border-neutral-800 bg-neutral-900/60 p-3"
+          >
+            <h3 id="dtf-inspector-heading" className="text-xs font-semibold text-neutral-200">
+              Quantity Inspector
+            </h3>
+            <div className="mt-1 text-lg font-bold text-neutral-100">
+              {formatQtyRange(selectedTier.minQty, selectedTier.maxQty)}
+            </div>
+            <div className="text-[10px] font-mono text-neutral-500 mb-3">
+              {selectedTierBasis
+                ? `${selectedTierBasis.source === "contract" ? "contract" : "engine"} · q${selectedTierBasis.costingQty}`
+                : "--"}
+            </div>
+            <div className="space-y-2">
+              {activeLanes.map((lane) => (
+                <div
+                  key={lane.key}
+                  className={`rounded border px-2.5 py-2 flex items-start justify-between gap-2 ${
+                    focusLaneKey === lane.key
+                      ? "border-cyan-700/40 bg-cyan-900/10"
+                      : "border-neutral-800 bg-neutral-900"
+                  }`}
+                >
+                  <div className="text-[11px]">
+                    <div className={`font-semibold ${focusLaneKey === lane.key ? "text-cyan-300" : "text-neutral-300"}`}>
+                      {lane.label}
+                    </div>
+                    <div className="text-[10px] text-neutral-500">
+                      Target {Math.round(lane.margin * 100)}% GM
+                    </div>
+                  </div>
+                  <DtfPriceCell
+                    cellKey={cellKeyFor(selectedTierIdx, selectedTier, lane.key)}
+                    tierLabel={selectedTier.tier}
+                    laneKey={lane.key}
+                    laneLabel={lane.label}
+                    price={selectedTier.prices[lane.key]}
+                    basis={selectedTierBasis}
+                    roundingIncrement={roundingIncrement}
+                    editing={editing}
+                    disabled={rollbackInProgress}
+                    persistedError={
+                      cellErrors[cellKeyFor(selectedTierIdx, selectedTier, lane.key)]
+                    }
+                    onPriceChange={(value) =>
+                      updateTierPrice(selectedTierIdx, lane.key, String(value))
+                    }
+                    onValidityChange={handleCellValidityChange}
+                  />
+                </div>
+              ))}
+            </div>
+          </aside>
+        )}
+
+        {!isDesktop && (
+          <div data-testid="dtf-mobile-tier-cards" className="space-y-2">
+            {config.tiers.map((tier, tierIdx) => {
+              const tierBasis = basisForTier(tier);
+              const expanded = tierIdx === selectedTierIdx;
+              const primaryLane =
+                activeLanes.find((l) => l.key === focusLaneKey) ?? activeLanes[0] ?? null;
+              const primaryPrice = primaryLane ? tier.prices[primaryLane.key] : undefined;
+              const primaryMargin =
+                tierBasis && primaryPrice != null
+                  ? marginFromPrice(tierBasis, primaryPrice)
+                  : null;
+              return (
+                <div
+                  key={tierIdx}
+                  className={`rounded-md border overflow-hidden ${
+                    expanded ? "border-cyan-700/40" : "border-neutral-800"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-label={`Select quantity ${tier.tier}`}
+                    onClick={() => setSelectedTierIdx(tierIdx)}
+                    className="w-full min-h-[44px] flex items-center justify-between gap-2 px-3 py-2 text-left bg-neutral-900"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-neutral-100">
+                        {formatQtyRange(tier.minQty, tier.maxQty)}
+                      </div>
+                      <div className="text-[10px] font-mono text-neutral-500">
+                        {tierBasis
+                          ? `${tierBasis.source === "contract" ? "contract" : "engine"} · q${tierBasis.costingQty}`
+                          : "--"}
+                      </div>
+                    </div>
+                    {primaryLane && (
+                      <div className="text-right">
+                        <div className="font-mono text-sm text-neutral-100">
+                          {primaryPrice != null
+                            ? `$${primaryPrice.toFixed(2)}`
+                            : "--"}
+                        </div>
+                        <div className="text-[10px] text-neutral-500">
+                          {primaryLane.label} · {primaryMargin?.ok
+                            ? `${Number(primaryMargin.marginPercent).toFixed(1)}% GM`
+                            : "GM --"}
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                  {expanded && (
+                    <div className="p-3 space-y-2 border-t border-neutral-800">
+                      {activeLanes.map((lane) => (
+                        <div
+                          key={lane.key}
+                          className="rounded border border-neutral-800 bg-neutral-900 px-2.5 py-2 flex items-start justify-between gap-2"
+                        >
+                          <div className="text-[11px]">
+                            <div className="font-semibold text-neutral-300">{lane.label}</div>
+                            <div className="text-[10px] text-neutral-500">
+                              Target {Math.round(lane.margin * 100)}% GM
+                            </div>
+                          </div>
+                          <DtfPriceCell
+                            cellKey={cellKeyFor(tierIdx, tier, lane.key)}
+                            tierLabel={tier.tier}
+                            laneKey={lane.key}
+                            laneLabel={lane.label}
+                            price={tier.prices[lane.key]}
+                            basis={tierBasis}
+                            roundingIncrement={roundingIncrement}
+                            editing={editing}
+                            disabled={rollbackInProgress}
+                            persistedError={
+                              cellErrors[cellKeyFor(tierIdx, tier, lane.key)]
+                            }
+                            onPriceChange={(value) =>
+                              updateTierPrice(tierIdx, lane.key, String(value))
+                            }
+                            onValidityChange={handleCellValidityChange}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             })}
-          </tbody>
-        </table>
+          </div>
+        )}
       </div>
 
       {editing && (
         <button
           onClick={addTier}
-          className="text-[10px] px-2.5 py-1 rounded bg-neutral-700 text-neutral-300 hover:bg-neutral-600"
+          className="text-[10px] px-2.5 py-1 rounded bg-neutral-800 border border-neutral-700 text-neutral-300 hover:bg-neutral-700"
         >
           + Add Tier
         </button>
       )}
-
-      <div className="text-[10px] text-neutral-500 text-center">
-        {config.tiers.length} tiers · {activeLanes.length} active lanes ·
-        {config.tiers.length > 0 && (
-          <>
-            {" "}Qty {config.tiers[0].minQty}–
-            {config.tiers[config.tiers.length - 1].maxQty === null
-              ? "∞"
-              : config.tiers[config.tiers.length - 1].maxQty?.toLocaleString()}
-          </>
-        )}
-      </div>
 
       <DtfPricingContext preview={preview} />
 
@@ -888,7 +1172,9 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
           {previewError}
         </div>
       )}
+      </div>
 
+      <div className="px-4 pb-4">
       <DtfQuoteImpact
         inputs={quoteInputs}
         errors={quoteErrors}
@@ -899,6 +1185,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
         maxProductCost={MAX_PRODUCT_COST}
         onChange={handleQuoteChange}
       />
+      </div>
     </div>
   );
 }

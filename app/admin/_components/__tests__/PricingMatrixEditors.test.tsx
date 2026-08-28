@@ -2,7 +2,7 @@
 
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import DtfMatrixEditor from "../DtfMatrixEditor";
 import AdditionalPrintsEditor from "../AdditionalPrintsEditor";
@@ -72,6 +72,7 @@ function okJson(data: unknown) {
 describe("pricing matrix editors", () => {
   beforeEach(() => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    Object.defineProperty(window, "innerWidth", { value: 1280, writable: true });
   });
 
   afterEach(() => {
@@ -136,6 +137,33 @@ describe("pricing matrix editors", () => {
     expect(descriptionToggle).toBeChecked();
     fireEvent.click(descriptionToggle);
     await waitFor(() => expect(descriptionToggle).not.toBeChecked());
+  });
+
+  it("uses one Additional Prints edit path on mobile and keeps the card summary/details", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      okJson({ data: additionalPrintsConfig, version: null, source: "baseline" })
+    ) as unknown as typeof fetch;
+
+    render(<AdditionalPrintsEditor persistenceEnabled={false} />);
+    await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
+    await act(async () => {
+      window.innerWidth = 800;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const cards = screen.getByTestId("ap-mobile-card-list");
+    expect(screen.queryByTestId("ap-desktop-table-panel")).not.toBeInTheDocument();
+    expect(within(cards).getByText("$6.00")).toBeVisible();
+    expect(within(cards).getByText("65.0% GM")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand Sleeve Print" }));
+    expect(within(cards).getByText("Description")).toBeVisible();
+    expect(within(cards).getByText("One standard sleeve print")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    expect(screen.getAllByLabelText("Decoration Price for sleeve_print")).toHaveLength(1);
+    expect(screen.getByLabelText("Description for sleeve_print")).toBeVisible();
+    expect(screen.queryByTestId("ap-desktop-table-panel")).not.toBeInTheDocument();
   });
 
   it("shows version history and rolls back to a superseded version", async () => {
