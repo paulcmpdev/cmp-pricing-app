@@ -404,6 +404,7 @@ describe("save eligibility with an invalid cell input", () => {
     fireEvent.change(screen.getByLabelText("Tier 1+ T2 price"), {
       target: { value: "7.00" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
     await waitFor(() =>
       expect(screen.getByLabelText("Tier 1+ T1 DTF GM percent")).toBeEnabled()
@@ -576,6 +577,7 @@ describe("save eligibility with an invalid cell input", () => {
       expect(screen.getByTestId("dtf-cell-input-errors")).toBeVisible()
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Manage Lanes" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete lane T1" }));
 
     await waitFor(() =>
@@ -605,6 +607,7 @@ describe("save eligibility with an invalid cell input", () => {
 describe("structure controls are preserved", () => {
   it("keeps add/delete/edit controls for quantity tiers", async () => {
     await renderEditing();
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
 
     fireEvent.change(screen.getByLabelText("Tier 1 label"), {
       target: { value: "Starter" },
@@ -622,12 +625,14 @@ describe("structure controls are preserved", () => {
   it("keeps desktop row keyboard handling on the named selection button", async () => {
     await renderEditing();
 
-    const label = screen.getByLabelText("Tier 1 label");
-    const row = label.closest("tr");
     const select = screen.getByRole("button", { name: "Select quantity 1+" });
+    const row = select.closest("tr");
 
     expect(row).not.toHaveAttribute("tabindex");
     expect(select).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
+    const label = screen.getByLabelText("Tier 1 label");
     expect(fireEvent.keyDown(label, { key: " " })).toBe(true);
     expect(fireEvent.keyDown(label, { key: "Enter" })).toBe(true);
 
@@ -640,6 +645,7 @@ describe("structure controls are preserved", () => {
 
   it("keeps add/delete/rename and active toggles for pricing lanes", async () => {
     await renderEditing();
+    fireEvent.click(screen.getByRole("button", { name: "Manage Lanes" }));
 
     fireEvent.change(screen.getByLabelText("Lane T2 label"), {
       target: { value: "Team" },
@@ -678,6 +684,7 @@ describe("structure controls are preserved", () => {
 
   it("disables DTF GM% for a tier whose cost basis is not resolved yet", async () => {
     await renderEditing();
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
 
     // Re-spanning the tier changes its cost key; the cached basis no longer
     // applies, so GM% must degrade to disabled rather than guess.
@@ -986,6 +993,7 @@ describe("Pricing Studio layout", () => {
     await renderEditing();
 
     // Add a second row so there is something else to select.
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
     const inspector = screen.getByTestId("dtf-quantity-inspector");
     expect(within(inspector).getByText("1-100")).toBeVisible();

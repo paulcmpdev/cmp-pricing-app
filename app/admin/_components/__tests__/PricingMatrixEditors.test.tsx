@@ -92,6 +92,7 @@ describe("pricing matrix editors", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
     expect(screen.getByText("Preview Only")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
 
     expect(screen.getByDisplayValue("101+")).toBeVisible();
@@ -107,6 +108,7 @@ describe("pricing matrix editors", () => {
     render(<DtfMatrixEditor persistenceEnabled={false} />);
     await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
@@ -114,7 +116,7 @@ describe("pricing matrix editors", () => {
     expect(screen.getByRole("button", { name: "Edit Matrix" })).toBeVisible();
   });
 
-  it("adds an Additional Prints row and controls optional columns only in edit mode", async () => {
+  it("adds an Additional Prints row via Manage Services and controls optional columns only in edit mode", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       okJson({ data: additionalPrintsConfig, version: null, source: "baseline" })
     ) as unknown as typeof fetch;
@@ -123,13 +125,21 @@ describe("pricing matrix editors", () => {
     await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
 
     expect(screen.getByText("Sleeve Print")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "+ Add Service" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage Services" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
-    fireEvent.click(screen.getByRole("button", { name: "+ Add Service" }));
-    expect(screen.getByDisplayValue("New Service")).toBeVisible();
     expect(screen.getByText("Preview Only")).toBeVisible();
 
+    const manageServicesTrigger = screen.getByRole("button", { name: "Manage Services" });
+    fireEvent.click(manageServicesTrigger);
+    const manageServicesDialog = screen.getByRole("dialog", { name: "Manage Services" });
+    expect(manageServicesDialog).toBeVisible();
+    expect(screen.getByRole("button", { name: "Close Manage Services" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "+ Add Service" }));
+    expect(screen.getByDisplayValue("New Service")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Manage Services" }));
+    expect(manageServicesTrigger).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Columns" }));
     const descriptionToggle = screen.getByRole("checkbox", {
       name: "Toggle Description column",
@@ -139,7 +149,7 @@ describe("pricing matrix editors", () => {
     await waitFor(() => expect(descriptionToggle).not.toBeChecked());
   });
 
-  it("uses one Additional Prints edit path on mobile and keeps the card summary/details", async () => {
+  it("uses one Additional Prints price edit path on mobile and keeps the card summary/details", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       okJson({ data: additionalPrintsConfig, version: null, source: "baseline" })
     ) as unknown as typeof fetch;
@@ -162,8 +172,12 @@ describe("pricing matrix editors", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
     expect(screen.getAllByLabelText("Decoration Price for sleeve_print")).toHaveLength(1);
-    expect(screen.getByLabelText("Description for sleeve_print")).toBeVisible();
     expect(screen.queryByTestId("ap-desktop-table-panel")).not.toBeInTheDocument();
+
+    // Advanced fields (description, etc.) are edited via Manage Services,
+    // not inline on the card — exactly one editable Price/GM path per view.
+    fireEvent.click(screen.getByRole("button", { name: "Manage Services" }));
+    expect(screen.getByLabelText("Description for sleeve_print")).toBeVisible();
   });
 
   it("shows version history and rolls back to a superseded version", async () => {
@@ -247,6 +261,7 @@ describe("pricing matrix editors", () => {
     await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Version History" }));
@@ -361,6 +376,7 @@ describe("pricing matrix editors", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
     const priceInput = screen.getByLabelText("Tier 1+ T1 price") as HTMLInputElement;
     expect(priceInput).toHaveValue(5);
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
 
     // Start a rollback (clean draft — the pre-click dirty guard allows this
     // even though editing is already open).
@@ -417,6 +433,7 @@ describe("pricing matrix editors", () => {
     render(<AdditionalPrintsEditor persistenceEnabled={false} />);
     await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage Services" }));
 
     const rowOrder = () =>
       screen.getAllByLabelText(/^Name for /).map((el) => (el as HTMLInputElement).value);

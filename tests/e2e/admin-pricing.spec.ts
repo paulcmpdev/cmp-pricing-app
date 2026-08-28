@@ -54,7 +54,7 @@ test.describe("Admin Pricing Preview", () => {
       const quoteHeading = dtf.getByRole("heading", { name: "Quote Impact Preview" });
 
       await expect(matrixPanel.getByRole("table")).toHaveCount(1);
-      await expect(dtf.getByText("23 quantities", { exact: false })).toBeVisible();
+      await expect(dtf.getByText("23 quantities", { exact: true })).toBeVisible();
       await expect(dtf.getByRole("row")).toHaveCount(24);
       await expect(
         dtf.getByRole("row").filter({ hasText: "72-143" }).first()
@@ -148,13 +148,14 @@ test.describe("Admin Pricing Preview", () => {
       const dtf = dtfSection(page);
       const price = dtf.getByLabel("Tier 72-143 T1 price", { exact: true });
       const margin = dtf.getByLabel("Tier 72-143 T1 DTF GM percent", { exact: true });
+      const priceCell = price.locator("xpath=../../..");
       const startingMargin = await margin.inputValue();
 
       await price.fill("7.00");
 
       await expect(price).toHaveValue("7.00");
       await expect(margin).not.toHaveValue(startingMargin);
-      await expect(price.locator("xpath=../..").getByText("from price", { exact: true })).toBeVisible();
+      await expect(priceCell.getByText("from price", { exact: true })).toBeVisible();
     });
 
     test("DTF GM% edits recalculate a rounded direct price and Quote Impact", async ({
@@ -164,16 +165,17 @@ test.describe("Admin Pricing Preview", () => {
       const dtf = dtfSection(page);
       const price = dtf.getByLabel("Tier 144-249 T1 price", { exact: true });
       const margin = dtf.getByLabel("Tier 144-249 T1 DTF GM percent", { exact: true });
+      const priceCell = margin.locator("xpath=../../..");
       const quoteImpact = dtf.getByTestId("dtf-quote-impact-result");
       const saved = quoteImpact.getByRole("heading", { name: "Saved", exact: true }).locator("..");
       const draft = quoteImpact.getByRole("heading", { name: "Draft", exact: true }).locator("..");
-      const savedDecoration = saved.getByText("Decoration Sell", { exact: true }).locator("..");
-      const draftDecoration = draft.getByText("Decoration Sell", { exact: true }).locator("..");
+      const savedUnitPrice = saved.getByText("Unit Price", { exact: true }).locator("..");
+      const draftUnitPrice = draft.getByText("Unit Price", { exact: true }).locator("..");
       const savedOrder = saved.getByText("Order Total", { exact: true }).locator("..");
       const draftOrder = draft.getByText("Order Total", { exact: true }).locator("..");
 
       await expect(quoteImpact.getByText(/Tier\s+144-249/)).toBeVisible();
-      const savedDecorationValue = await savedDecoration.locator("dd > span").first().innerText();
+      const savedUnitPriceValue = await savedUnitPrice.locator("dd > span").first().innerText();
       const savedOrderValue = await savedOrder.locator("dd > span").first().innerText();
 
       await margin.fill("40");
@@ -183,13 +185,13 @@ test.describe("Admin Pricing Preview", () => {
         Math.round(Number(await price.inputValue()) * 20),
         8
       );
-      await expect(price.locator("xpath=../..").getByText("from GM%", { exact: true })).toBeVisible();
-      await expect(draftDecoration.locator("dd > span").first()).not.toHaveText(
-        savedDecorationValue
-      );
-      await expect(draftDecoration.locator("dd > span")).toHaveCount(2);
-      await expect(draftOrder.locator("dd > span").first()).not.toHaveText(savedOrderValue);
+      await expect(priceCell.getByText("from GM%", { exact: true })).toBeVisible();
+      await expect(draftUnitPrice.locator("dd > span")).toHaveCount(2);
       await expect(draftOrder.locator("dd > span")).toHaveCount(2);
+      await expect(draftUnitPrice.locator("dd > span").first()).not.toHaveText(
+        savedUnitPriceValue
+      );
+      await expect(draftOrder.locator("dd > span").first()).not.toHaveText(savedOrderValue);
       await expect(quoteImpact.getByText(/Order delta:/)).toBeVisible();
     });
 
@@ -225,17 +227,20 @@ test.describe("Admin Pricing Preview", () => {
       await editDtfMatrix(page);
       const dtf = dtfSection(page);
 
+      await dtf.getByRole("button", { name: "Manage Lanes", exact: true }).click();
       await expect(dtf.getByLabel("Lane T1 label", { exact: true })).toHaveValue("T1");
       await expect(dtf.getByRole("checkbox", { name: "Active" })).toHaveCount(4);
       await expect(dtf.getByRole("button", { name: "+ Add Lane" })).toBeVisible();
-      await expect(dtf.getByRole("button", { name: "+ Add Tier" })).toBeVisible();
 
       await dtf.getByRole("button", { name: "+ Add Lane" }).click();
       await expect(dtf.getByLabel("Lane T5 label", { exact: true })).toHaveValue("T5");
       await expect(dtf.getByRole("checkbox", { name: "Active" })).toHaveCount(5);
 
+      await dtf.getByRole("button", { name: "Manage Lanes", exact: true }).click();
+      await dtf.getByRole("button", { name: "Manage Quantities" }).click();
+      await expect(dtf.getByRole("button", { name: "+ Add Tier" })).toBeVisible();
       await dtf.getByRole("button", { name: "+ Add Tier" }).click();
-      await expect(dtf.getByText("24 quantities", { exact: false })).toBeVisible();
+      await expect(dtf.getByText("24 quantities", { exact: true })).toBeVisible();
       await expect(dtf.getByRole("button", { name: /Delete tier 2600\+/ })).toBeVisible();
     });
 

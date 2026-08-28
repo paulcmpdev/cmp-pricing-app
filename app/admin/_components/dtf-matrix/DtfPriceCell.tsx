@@ -236,51 +236,74 @@ export default function DtfPriceCell({
   }
 
   return (
-    <div className="flex flex-col items-stretch gap-1 min-w-[104px]">
-      <div className="flex items-center gap-1 justify-end">
-        <span className="text-[9px] uppercase tracking-wider text-neutral-500 shrink-0">
-          $
-        </span>
-        <input
-          type="number"
-          value={priceFieldValue}
-          onChange={(e) => handlePriceInput(e.target.value)}
-          onBlur={handlePriceBlur}
-          step={roundingIncrement}
-          min="0"
-          disabled={disabled}
-          aria-label={priceLabel}
-          aria-describedby={describedBy}
-          className="w-[68px] text-xs text-right bg-neutral-800 border border-neutral-600 rounded px-1.5 py-1 text-neutral-200 min-h-[32px] focus:outline-none focus:ring-1 focus:ring-cyan-400/60"
-        />
+    <div className="flex flex-col items-stretch gap-1.5 min-w-[104px]">
+      <div className="flex flex-col items-end gap-0.5">
+        <label
+          htmlFor={`price-${describedBy}`}
+          className="text-[9px] font-bold uppercase tracking-wide text-neutral-500"
+        >
+          Decoration Price
+        </label>
+        <div className="flex items-center gap-1 justify-end">
+          <span className="text-[9px] uppercase tracking-wider text-neutral-500 shrink-0">
+            $
+          </span>
+          <input
+            id={`price-${describedBy}`}
+            type="number"
+            value={priceFieldValue}
+            onChange={(e) => handlePriceInput(e.target.value)}
+            onBlur={handlePriceBlur}
+            step={roundingIncrement}
+            min="0"
+            disabled={disabled}
+            aria-label={priceLabel}
+            aria-describedby={describedBy}
+            className="w-[68px] text-xs text-right bg-neutral-800 border border-neutral-600 rounded px-1.5 py-1 text-neutral-200 min-h-[32px] focus:outline-none focus:ring-1 focus:ring-cyan-400/60"
+          />
+        </div>
       </div>
-      <div className="flex items-center gap-1 justify-end">
-        <input
-          type="number"
-          value={marginFieldValue}
-          onChange={(e) => handleMarginInput(e.target.value)}
-          onBlur={handleMarginBlur}
-          step="0.1"
-          min="0"
-          max="99.9"
-          disabled={disabled || !basis}
-          aria-label={marginLabel}
-          aria-describedby={describedBy}
-          aria-invalid={marginError ? true : undefined}
-          title={!basis ? "Cost basis not resolved yet for this tier." : undefined}
-          className={`w-[62px] text-[11px] text-right bg-neutral-800/70 border rounded px-1.5 py-1 min-h-[32px] focus:outline-none focus:ring-1 focus:ring-cyan-400/60 disabled:opacity-40 ${
-            marginError || derivedError || belowCost
-              ? "border-red-500/60 text-red-300"
-              : "border-neutral-700 text-neutral-300"
-          }`}
-        />
-        <span className="text-[9px] uppercase tracking-wider text-neutral-500 shrink-0 w-[12px]">
-          %
-        </span>
+      <div className="flex flex-col items-end gap-0.5">
+        <label
+          htmlFor={`gm-${describedBy}`}
+          className="text-[9px] font-bold uppercase tracking-wide text-neutral-500"
+        >
+          DTF GM%
+        </label>
+        <div className="flex items-center gap-1 justify-end">
+          <input
+            id={`gm-${describedBy}`}
+            type="number"
+            value={marginFieldValue}
+            onChange={(e) => handleMarginInput(e.target.value)}
+            onBlur={handleMarginBlur}
+            step="0.1"
+            min="0"
+            max="99.9"
+            disabled={disabled || !basis}
+            aria-label={marginLabel}
+            aria-describedby={describedBy}
+            aria-invalid={marginError ? true : undefined}
+            title={!basis ? "Cost basis not resolved yet for this tier." : undefined}
+            className={`w-[62px] text-[11px] text-right bg-neutral-800/70 border rounded px-1.5 py-1 min-h-[32px] focus:outline-none focus:ring-1 focus:ring-cyan-400/60 disabled:opacity-40 ${
+              marginError || derivedError || belowCost
+                ? "border-red-500/60 text-red-300"
+                : "border-neutral-700 text-neutral-300"
+            }`}
+          />
+          <span className="text-[9px] uppercase tracking-wider text-neutral-500 shrink-0 w-[12px]">
+            %
+          </span>
+        </div>
       </div>
       <span id={describedBy} className="sr-only">
         {`Direct price and DTF gross margin for tier ${tierLabel}, lane ${laneLabel}. Editing either field recalculates the other.`}
       </span>
+      {basis && (
+        <span className="text-[9px] text-neutral-500 text-right">
+          Modeled basis {fmtCurrency(Number(basis.baseDtfCogs) + Number(basis.laborRecovery))}
+        </span>
+      )}
       {(marginError || derivedError) && (
         <span className="text-[9px] text-red-400 text-right" role="alert">
           {marginError ?? derivedError}
