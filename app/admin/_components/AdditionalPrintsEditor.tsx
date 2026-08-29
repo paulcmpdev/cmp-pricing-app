@@ -260,6 +260,9 @@ export default function AdditionalPrintsEditor({ persistenceEnabled }: Props) {
     for (const svc of c.services) {
       if (!svc.key.trim()) errors.push("All services must have a key.");
       if (!svc.name.trim()) errors.push(`Service "${svc.key}" must have a name.`);
+      if (!Number.isFinite(svc.effectivePrice) || svc.effectivePrice < 0) {
+        errors.push(`Service "${svc.name}" price must be $0.00 or more.`);
+      }
       if (svc.composition.length === 0) errors.push(`Service "${svc.name}" needs at least one composition entry.`);
       if (keys.has(svc.key)) errors.push(`Duplicate service key: "${svc.key}".`);
       keys.add(svc.key);
@@ -485,7 +488,7 @@ export default function AdditionalPrintsEditor({ persistenceEnabled }: Props) {
 
   const priceInput = (service: AdditionalPrintService, realIdx: number, opts?: { mobile?: boolean }) => {
     const mobile = opts?.mobile ?? false;
-    const invalid = !(service.effectivePrice > 0);
+    const invalid = !Number.isFinite(service.effectivePrice) || service.effectivePrice < 0;
     return (
       <div className={`flex flex-col ${mobile ? "items-end" : "items-end"} gap-1`}>
         <div className={mobile ? "relative w-[104px]" : "relative"}>
@@ -497,7 +500,7 @@ export default function AdditionalPrintsEditor({ persistenceEnabled }: Props) {
             value={service.effectivePrice}
             onChange={(e) => updateService(realIdx, "effectivePrice", parseFloat(e.target.value) || 0)}
             step="0.05"
-            min="0.01"
+            min="0"
             aria-label={`Decoration Price for ${service.key}`}
             aria-invalid={invalid}
             className={
@@ -513,7 +516,7 @@ export default function AdditionalPrintsEditor({ persistenceEnabled }: Props) {
         </div>
         {invalid && (
           <span role="alert" className="text-[10px] text-red-400 text-right max-w-[150px]">
-            Enter a price greater than $0.00
+            Enter a price of $0.00 or more
           </span>
         )}
       </div>

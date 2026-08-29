@@ -149,6 +149,78 @@ describe("pricing matrix editors", () => {
     await waitFor(() => expect(descriptionToggle).not.toBeChecked());
   });
 
+  it("accepts a zero Additional Prints price and preserves the complete save payload", async () => {
+    const version = {
+      id: "22222222-2222-2222-2222-222222222222",
+      createdBy: "admin@cmpsportswear.com",
+      createdAt: "2026-02-01T00:00:00.000Z",
+      activatedAt: "2026-02-01T00:00:00.000Z",
+    };
+    const putBodies: Array<Record<string, unknown>> = [];
+    globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/admin/pricing/config") && init?.method === "PUT") {
+        putBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return Promise.resolve(okJson({ ok: true, version }));
+      }
+      return Promise.resolve(
+        okJson({ data: additionalPrintsConfig, version, source: "database" })
+      );
+    }) as unknown as typeof fetch;
+
+    render(<AdditionalPrintsEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+
+    const price = screen.getByLabelText("Decoration Price for sleeve_print");
+    fireEvent.change(price, { target: { value: "0" } });
+    expect(price).toHaveValue(0);
+    expect(price).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText(/price of \$0\.00 or more/i)).not.toBeInTheDocument();
+
+    const save = screen.getByRole("button", { name: "Save Changes" });
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await waitFor(() => expect(putBodies).toHaveLength(1));
+
+    expect(putBodies[0]).toEqual({
+      configType: "additional_prints",
+      data: {
+        ...additionalPrintsConfig,
+        services: additionalPrintsConfig.services.map((service, index) =>
+          index === 0 ? { ...service, effectivePrice: 0 } : service
+        ),
+      },
+      expectedVersion: version.id,
+    });
+  });
+
+  it("marks a negative Additional Prints price invalid and blocks Save", async () => {
+    const putSpy = vi.fn();
+    globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/admin/pricing/config") && init?.method === "PUT") {
+        putSpy();
+      }
+      return Promise.resolve(
+        okJson({ data: additionalPrintsConfig, version: null, source: "baseline" })
+      );
+    }) as unknown as typeof fetch;
+
+    render(<AdditionalPrintsEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+
+    const price = screen.getByLabelText("Decoration Price for sleeve_print");
+    fireEvent.change(price, { target: { value: "-1" } });
+    expect(price).toHaveValue(-1);
+    expect(price).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Enter a price of $0.00 or more")).toBeVisible();
+
+    const save = screen.getByRole("button", { name: "Save Changes" });
+    await waitFor(() => expect(save).toBeDisabled());
+    fireEvent.click(save);
+    expect(putSpy).not.toHaveBeenCalled();
+  });
+
   it("uses one Additional Prints price edit path on mobile and keeps the card summary/details", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       okJson({ data: additionalPrintsConfig, version: null, source: "baseline" })
