@@ -129,8 +129,6 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
   });
   // Selected row for the sticky Quantity Inspector / mobile expanded card.
   const [selectedTierIdx, setSelectedTierIdx] = useState(0);
-  // Visual-only lane focus (chips + focused column). Never mutates config.
-  const [focusLaneKey, setFocusLaneKey] = useState<string>("");
   const [isDesktop, setIsDesktop] = useState(true);
   // Advanced configuration surfaces, subordinate to the read-first matrix.
   const [manageLanesOpen, setManageLanesOpen] = useState(false);
@@ -525,13 +523,6 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
     setQuoteInputs((prev) => ({ ...prev, lane: activeLanes[0].key }));
   }, [activeLanes, quoteInputs.lane]);
 
-  // Keep the lane focus chip pointed at a lane that still exists.
-  useEffect(() => {
-    if (activeLanes.length === 0) return;
-    if (activeLanes.some((lane) => lane.key === focusLaneKey)) return;
-    setFocusLaneKey(activeLanes[0].key);
-  }, [activeLanes, focusLaneKey]);
-
   // Keep the selected row in range as tiers are added/removed.
   useEffect(() => {
     if (!config) return;
@@ -760,33 +751,8 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
         </div>
       </div>
 
-      {/* Summary bar: four zones */}
+      {/* Summary bar: three zones */}
       <div className="flex flex-wrap border-b border-neutral-800 bg-neutral-900/40">
-        <div className="flex-1 min-w-[200px] border-r border-neutral-800/60 px-4 sm:px-5 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500 mb-1.5">
-            Lane Focus &middot; Target Gross Margin
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {activeLanes.map((lane) => (
-              <button
-                key={lane.key}
-                type="button"
-                onClick={() => setFocusLaneKey(lane.key)}
-                aria-pressed={focusLaneKey === lane.key}
-                className={`inline-flex min-h-[28px] items-center gap-1 rounded px-2.5 py-1 text-[11.5px] font-semibold border ${
-                  focusLaneKey === lane.key
-                    ? "border-cyan-500 bg-cyan-900/20 text-cyan-300"
-                    : "border-neutral-700 bg-neutral-800 text-neutral-400 hover:border-neutral-600"
-                }`}
-              >
-                {lane.label}
-                <span className={focusLaneKey === lane.key ? "text-cyan-300/75" : "text-neutral-500"}>
-                  {Math.round(lane.margin * 100)}%
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
         <div className="flex-1 min-w-[200px] border-r border-neutral-800/60 px-4 sm:px-5 py-3">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500 mb-1.5">
             Quantity Coverage
@@ -1090,16 +1056,10 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                     {activeLanes.map((lane) => (
                       <th
                         key={lane.key}
-                        className={`text-right py-2 px-3 font-semibold uppercase tracking-wide text-[10px] min-w-[112px] ${
-                          focusLaneKey === lane.key ? "text-cyan-300 bg-cyan-900/10" : "text-neutral-500"
-                        }`}
+                        className="text-right py-2 px-3 font-semibold uppercase tracking-wide text-[10px] min-w-[112px] text-neutral-500"
                       >
                         {lane.label}
-                        <span
-                          className={`block mt-0.5 font-normal normal-case tracking-normal text-[10px] ${
-                            focusLaneKey === lane.key ? "text-cyan-300/80" : "text-neutral-500"
-                          }`}
-                        >
+                        <span className="block mt-0.5 font-normal normal-case tracking-normal text-[10px] text-neutral-500">
                           {Math.round(lane.margin * 100)}% target
                         </span>
                       </th>
@@ -1142,13 +1102,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                         {activeLanes.map((lane) => (
                           <td
                             key={lane.key}
-                            className={`py-2 px-3 text-right font-mono text-neutral-200 align-top ${
-                              focusLaneKey === lane.key
-                                ? isSelected
-                                  ? "bg-cyan-900/15"
-                                  : "bg-cyan-900/5"
-                                : ""
-                            }`}
+                            className="py-2 px-3 text-right font-mono text-neutral-200 align-top"
                           >
                             <DtfPriceCell
                               cellKey={`${cellKeyFor(tierIdx, tier, lane.key)}${
@@ -1207,18 +1161,13 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
               </div>
               <div className="space-y-2">
                 {activeLanes.map((lane) => {
-                  const isFocused = focusLaneKey === lane.key;
                   return (
                     <div
                       key={lane.key}
-                      className={`rounded border px-2.5 py-2 flex items-start justify-between gap-2 ${
-                        isFocused
-                          ? "border-cyan-700/40 bg-cyan-900/10"
-                          : "border-neutral-800 bg-neutral-900"
-                      }`}
+                      className="rounded border px-2.5 py-2 flex items-start justify-between gap-2 border-neutral-800 bg-neutral-900"
                     >
                       <div className="text-[12px]">
-                        <div className={`font-bold ${isFocused ? "text-cyan-300" : "text-neutral-300"}`}>
+                        <div className="font-bold text-neutral-300">
                           {lane.label}
                         </div>
                         <div className="text-[10.5px] text-neutral-500">
@@ -1269,8 +1218,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
               const isLast = tierIdx === config.tiers.length - 1;
               const tierBasis = basisForTier(tier);
               const expanded = tierIdx === selectedTierIdx;
-              const primaryLane =
-                activeLanes.find((l) => l.key === focusLaneKey) ?? activeLanes[0] ?? null;
+              const primaryLane = activeLanes[0] ?? null;
               const primaryPrice = primaryLane ? tier.prices[primaryLane.key] : undefined;
               const primaryMargin =
                 tierBasis && primaryPrice != null

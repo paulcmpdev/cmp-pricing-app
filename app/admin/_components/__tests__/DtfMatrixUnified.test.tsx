@@ -249,8 +249,61 @@ describe("matrix row controls", () => {
   it("spells out gross margin instead of relying on the GM acronym", async () => {
     await renderEditing();
 
-    expect(screen.getByText("Lane Focus · Target Gross Margin")).toBeVisible();
     expect(screen.getAllByText("DTF Gross Margin %").length).toBeGreaterThan(0);
+  });
+});
+
+describe("lane focus removed", () => {
+  it("renders no lane-focus chip controls or heading in the summary bar", async () => {
+    await renderEditing();
+
+    expect(screen.queryByText(/Lane Focus/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "T1 50%" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "T2 45%" })).not.toBeInTheDocument();
+  });
+
+  it("gives every active lane equal visual weight in the desktop matrix header", async () => {
+    await renderEditing();
+
+    const table = screen.getByTestId("dtf-matrix-table-panel");
+    const t1Header = within(table).getByRole("columnheader", { name: /^T1/ });
+    const t2Header = within(table).getByRole("columnheader", { name: /^T2/ });
+
+    expect(t1Header.className).toBe(t2Header.className);
+    const t1Sub = t1Header.querySelector("span");
+    const t2Sub = t2Header.querySelector("span");
+    expect(t1Sub?.className).toBe(t2Sub?.className);
+  });
+
+  it("gives every active lane equal visual weight in the read-only Quantity Inspector", async () => {
+    mockRoutedFetch();
+    render(<DtfMatrixEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
+
+    const inspector = await screen.findByTestId("dtf-quantity-inspector");
+    const rows = within(inspector)
+      .getAllByText(/^T[12]$/)
+      .map((el) => el.closest("div[class*='rounded border']"));
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.className).toBe(rows[1]?.className);
+  });
+
+  it("uses the first active lane deterministically for the mobile compact summary, with no way to change it", async () => {
+    mockRoutedFetch();
+    render(<DtfMatrixEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
+
+    await act(async () => {
+      window.innerWidth = 500;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const summary = await screen.findByRole("button", { name: "Select quantity 1+" });
+    expect(within(summary).getByText("$6.50")).toBeVisible();
+    expect(await within(summary).findByText("T1 · 50.0% GM")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "T1 50%" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "T2 45%" })).not.toBeInTheDocument();
   });
 });
 
