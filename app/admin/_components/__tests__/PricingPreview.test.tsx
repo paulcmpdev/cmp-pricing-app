@@ -72,6 +72,20 @@ describe("AdminHeader", () => {
     expect(html).toContain("Read-only");
   });
 
+  it("labels authenticated production pricing as persistent", () => {
+    const html = renderToStaticMarkup(
+      <AdminHeader
+        activeSection="pricing"
+        pricingPreviewEnabled
+        authenticatedProduction
+      />
+    );
+
+    expect(html).toContain("Authenticated production");
+    expect(html).toContain("Persistent pricing");
+    expect(html).not.toContain("Session only");
+  });
+
   it("renders admin section navigation with aria-label", () => {
     const html = renderToStaticMarkup(
       <AdminHeader activeSection="catalog" pricingPreviewEnabled={true} />

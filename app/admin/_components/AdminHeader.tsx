@@ -22,7 +22,7 @@ export default function AdminHeader({
 }) {
   const previewStatus = authenticatedProduction
     ? activeSection === "pricing"
-      ? "Authenticated production · Session only"
+      ? "Authenticated production · Persistent pricing"
       : activeSection === "users"
         ? "Authenticated production · Access control"
         : "Authenticated production · Read-only"
