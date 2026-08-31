@@ -165,6 +165,7 @@ describe("GET /api/quote/options — staff-safe projection", () => {
       effectivePrice: 6,
     });
     expect(data.minimumBillableQuantity).toBe(12);
+    expect(data.canOverridePricingLane).toBe(false);
 
     const serialized = JSON.stringify(data);
     for (const internalField of ["cogs", "operatorOperatingCost", "enginePrice", "policyFloor", "manualOverride", "grossMargin", "status", "operatorMinPerShirt", "designerMinPerOrder", "geometryKey"]) {

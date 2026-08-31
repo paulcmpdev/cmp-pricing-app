@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as quoteItemPOST } from "../item/route";
+import { GET as quoteOptionsGET } from "../options/route";
 import { POST as quoteFlatFeePOST } from "../flat-fee/route";
 import {
   MANAGER_ONLY_ITEM_KEYS,
@@ -101,6 +102,44 @@ describe("auth-enabled quote projection security", () => {
       }
     });
 
+    it("rejects a sales_rep pricing-lane override", async () => {
+      enableAuth();
+      mockGetToken.mockResolvedValue({
+        email: "rep@cmpsportswear.com",
+        role: "sales_rep",
+      } as any);
+
+      const res = await quoteItemPOST(
+        makeRequest("http://localhost/api/quote/item", {
+          ...ITEM_BODY,
+          tierPriceLane: "T2",
+        })
+      );
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "Insufficient permissions." });
+    });
+
+    it.each(["manager", "admin"] as const)(
+      "allows a %s pricing-lane override",
+      async (role) => {
+        enableAuth();
+        mockGetToken.mockResolvedValue({
+          email: `${role}@cmpsportswear.com`,
+          role,
+        } as any);
+
+        const res = await quoteItemPOST(
+          makeRequest("http://localhost/api/quote/item", {
+            ...ITEM_BODY,
+            tierPriceLane: "T2",
+          })
+        );
+
+        expect(res.status).toBe(200);
+      }
+    );
+
     it("admin receives manager projection with COGS data", async () => {
       enableAuth();
       mockGetToken.mockResolvedValue({
@@ -168,6 +207,31 @@ describe("auth-enabled quote projection security", () => {
 
       expect(raw).not.toMatch(SENSITIVE_PATTERNS);
     });
+  });
+
+  describe("quote options route", () => {
+    it.each([
+      ["sales_rep", false],
+      ["manager", true],
+      ["admin", true],
+    ] as const)(
+      "returns the authoritative override permission for %s projection",
+      async (role, canOverridePricingLane) => {
+        enableAuth();
+        mockGetToken.mockResolvedValue({
+          email: `${role}@cmpsportswear.com`,
+          role,
+        } as any);
+
+        const res = await quoteOptionsGET(
+          new NextRequest("http://localhost/api/quote/options")
+        );
+        const data = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(data.canOverridePricingLane).toBe(canOverridePricingLane);
+      }
+    );
   });
 
   describe("flat-fee quote route", () => {
