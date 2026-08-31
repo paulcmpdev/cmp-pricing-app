@@ -2,7 +2,7 @@
 
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import DtfMatrixEditor from "../DtfMatrixEditor";
 import AdditionalPrintsEditor from "../AdditionalPrintsEditor";
@@ -72,6 +72,7 @@ function okJson(data: unknown) {
 describe("pricing matrix editors", () => {
   beforeEach(() => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    Object.defineProperty(window, "innerWidth", { value: 1280, writable: true });
   });
 
   afterEach(() => {
@@ -91,6 +92,7 @@ describe("pricing matrix editors", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
     expect(screen.getByText("Preview Only")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
 
     expect(screen.getByDisplayValue("101+")).toBeVisible();
@@ -106,6 +108,7 @@ describe("pricing matrix editors", () => {
     render(<DtfMatrixEditor persistenceEnabled={false} />);
     await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
@@ -113,7 +116,7 @@ describe("pricing matrix editors", () => {
     expect(screen.getByRole("button", { name: "Edit Matrix" })).toBeVisible();
   });
 
-  it("adds an Additional Prints row and controls optional columns only in edit mode", async () => {
+  it("adds an Additional Prints row via Manage Services and controls optional columns only in edit mode", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       okJson({ data: additionalPrintsConfig, version: null, source: "baseline" })
     ) as unknown as typeof fetch;
@@ -122,13 +125,21 @@ describe("pricing matrix editors", () => {
     await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
 
     expect(screen.getByText("Sleeve Print")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "+ Add Service" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage Services" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
-    fireEvent.click(screen.getByRole("button", { name: "+ Add Service" }));
-    expect(screen.getByDisplayValue("New Service")).toBeVisible();
     expect(screen.getByText("Preview Only")).toBeVisible();
 
+    const manageServicesTrigger = screen.getByRole("button", { name: "Manage Services" });
+    fireEvent.click(manageServicesTrigger);
+    const manageServicesDialog = screen.getByRole("dialog", { name: "Manage Services" });
+    expect(manageServicesDialog).toBeVisible();
+    expect(screen.getByRole("button", { name: "Close Manage Services" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "+ Add Service" }));
+    expect(screen.getByDisplayValue("New Service")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close Manage Services" }));
+    expect(manageServicesTrigger).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Columns" }));
     const descriptionToggle = screen.getByRole("checkbox", {
       name: "Toggle Description column",
@@ -136,6 +147,109 @@ describe("pricing matrix editors", () => {
     expect(descriptionToggle).toBeChecked();
     fireEvent.click(descriptionToggle);
     await waitFor(() => expect(descriptionToggle).not.toBeChecked());
+  });
+
+  it("accepts a zero Additional Prints price and preserves the complete save payload", async () => {
+    const version = {
+      id: "22222222-2222-2222-2222-222222222222",
+      createdBy: "admin@cmpsportswear.com",
+      createdAt: "2026-02-01T00:00:00.000Z",
+      activatedAt: "2026-02-01T00:00:00.000Z",
+    };
+    const putBodies: Array<Record<string, unknown>> = [];
+    globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/admin/pricing/config") && init?.method === "PUT") {
+        putBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return Promise.resolve(okJson({ ok: true, version }));
+      }
+      return Promise.resolve(
+        okJson({ data: additionalPrintsConfig, version, source: "database" })
+      );
+    }) as unknown as typeof fetch;
+
+    render(<AdditionalPrintsEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+
+    const price = screen.getByLabelText("Decoration Price for sleeve_print");
+    fireEvent.change(price, { target: { value: "0" } });
+    expect(price).toHaveValue(0);
+    expect(price).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText(/price of \$0\.00 or more/i)).not.toBeInTheDocument();
+
+    const save = screen.getByRole("button", { name: "Save Changes" });
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await waitFor(() => expect(putBodies).toHaveLength(1));
+
+    expect(putBodies[0]).toEqual({
+      configType: "additional_prints",
+      data: {
+        ...additionalPrintsConfig,
+        services: additionalPrintsConfig.services.map((service, index) =>
+          index === 0 ? { ...service, effectivePrice: 0 } : service
+        ),
+      },
+      expectedVersion: version.id,
+    });
+  });
+
+  it("marks a negative Additional Prints price invalid and blocks Save", async () => {
+    const putSpy = vi.fn();
+    globalThis.fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/admin/pricing/config") && init?.method === "PUT") {
+        putSpy();
+      }
+      return Promise.resolve(
+        okJson({ data: additionalPrintsConfig, version: null, source: "baseline" })
+      );
+    }) as unknown as typeof fetch;
+
+    render(<AdditionalPrintsEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+
+    const price = screen.getByLabelText("Decoration Price for sleeve_print");
+    fireEvent.change(price, { target: { value: "-1" } });
+    expect(price).toHaveValue(-1);
+    expect(price).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Enter a price of $0.00 or more")).toBeVisible();
+
+    const save = screen.getByRole("button", { name: "Save Changes" });
+    await waitFor(() => expect(save).toBeDisabled());
+    fireEvent.click(save);
+    expect(putSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses one Additional Prints price edit path on mobile and keeps the card summary/details", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      okJson({ data: additionalPrintsConfig, version: null, source: "baseline" })
+    ) as unknown as typeof fetch;
+
+    render(<AdditionalPrintsEditor persistenceEnabled={false} />);
+    await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
+    await act(async () => {
+      window.innerWidth = 800;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    const cards = screen.getByTestId("ap-mobile-card-list");
+    expect(screen.queryByTestId("ap-desktop-table-panel")).not.toBeInTheDocument();
+    expect(within(cards).getByText("$6.00")).toBeVisible();
+    expect(within(cards).getByText("65.0% GM")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand Sleeve Print" }));
+    expect(within(cards).getByText("Description")).toBeVisible();
+    expect(within(cards).getByText("One standard sleeve print")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    expect(screen.getAllByLabelText("Decoration Price for sleeve_print")).toHaveLength(1);
+    expect(screen.queryByTestId("ap-desktop-table-panel")).not.toBeInTheDocument();
+
+    // Advanced fields (description, etc.) are edited via Manage Services,
+    // not inline on the card — exactly one editable Price/GM path per view.
+    fireEvent.click(screen.getByRole("button", { name: "Manage Services" }));
+    expect(screen.getByLabelText("Description for sleeve_print")).toBeVisible();
   });
 
   it("shows version history and rolls back to a superseded version", async () => {
@@ -219,6 +333,7 @@ describe("pricing matrix editors", () => {
     await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Version History" }));
@@ -333,6 +448,7 @@ describe("pricing matrix editors", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
     const priceInput = screen.getByLabelText("Tier 1+ T1 price") as HTMLInputElement;
     expect(priceInput).toHaveValue(5);
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
 
     // Start a rollback (clean draft — the pre-click dirty guard allows this
     // even though editing is already open).
@@ -389,6 +505,7 @@ describe("pricing matrix editors", () => {
     render(<AdditionalPrintsEditor persistenceEnabled={false} />);
     await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage Services" }));
 
     const rowOrder = () =>
       screen.getAllByLabelText(/^Name for /).map((el) => (el as HTMLInputElement).value);

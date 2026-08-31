@@ -9,6 +9,11 @@
 // draft edit that lands before the response resolves — isolating the
 // defense-in-depth guard inside fetchConfig itself from the surrounding
 // lock that normally makes the race unreachable.
+//
+// The race is about config GET reloads specifically, so the DTF mock routes by
+// URL and method and counts only `GET /api/admin/pricing/config?type=dtf_matrix`
+// — the unified editor's preview POSTs are answered immediately and never
+// touch that counter.
 
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +39,58 @@ const activeVersion = {
 const dtfConfig = {
   lanes: [{ key: "T1", label: "T1", margin: 0.5, active: true }],
   tiers: [{ tier: "1+", minQty: 1, maxQty: null, prices: { T1: 5 } }],
+};
+
+const dtfCostBasis = {
+  baseDtfCogs: "2",
+  laborRecovery: "0.5",
+  totalDtfCogs: "2.5",
+  costingQty: 1,
+  basis: "Test fixture cost basis",
+  source: "engine" as const,
+};
+
+// The unified DTF editor recalculates derived GM% against this endpoint on
+// every draft change. It is a separate request stream from the config GET the
+// race under test is about, so it gets its own canned answer.
+const dtfPreviewPayload = {
+  preview: {
+    schemaVersion: "1.0.0",
+    source: "test",
+    pricingPolicy: {
+      productCostMultiplier: 2,
+      commissionReserveRate: 0.08,
+      roundingIncrement: "0.05",
+    },
+    dtfContext: {
+      activeProductionMode: "Average",
+      pricingMode: "Tier-Based",
+      sharedProjectLaborPerOrder: "0.50",
+      capturedTransferSizeIn: { width: 10, height: 10 },
+      sheetWidthIn: 22,
+      spacingIn: 0.25,
+      maxSupportedQuantity: 5000,
+    },
+    costBases: { "1:+": dtfCostBasis },
+    tiers: [
+      {
+        tier: "1+",
+        minQty: 1,
+        maxQty: null,
+        costKey: "1:+",
+        costBasis: dtfCostBasis,
+        lanes: {
+          T1: {
+            price: "5.00",
+            margin: "0.5",
+            marginPercent: "50",
+            belowCost: false,
+            error: null,
+          },
+        },
+      },
+    ],
+  },
 };
 
 const additionalPrintsConfig = {
@@ -77,18 +134,35 @@ describe("fetchConfig deferred-GET race guard", () => {
   });
 
   it("DTF editor: keeps a draft that goes dirty while a reload GET is in flight", async () => {
-    let callCount = 0;
+    // Only config GETs are counted and deferred. The unified editor also fires
+    // preview POSTs on every draft change, and a blanket counter would both
+    // mis-number the reload and hang those POSTs on the deferred promise —
+    // hiding the race this test exists to pin down.
+    const CONFIG_GET_URL = "/api/admin/pricing/config?type=dtf_matrix";
+    let configGetCount = 0;
     let resolveReload: (value: unknown) => void = () => {};
-    globalThis.fetch = vi.fn(() => {
-      callCount += 1;
-      if (callCount === 1) {
-        return Promise.resolve(
-          okJson({ data: dtfConfig, version: activeVersion, source: "database" })
-        );
+    globalThis.fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (url.startsWith("/api/admin/pricing/preview")) {
+        return Promise.resolve(okJson(dtfPreviewPayload));
       }
-      return new Promise((resolve) => {
-        resolveReload = resolve;
-      });
+
+      if (method === "GET" && url === CONFIG_GET_URL) {
+        configGetCount += 1;
+        if (configGetCount === 1) {
+          return Promise.resolve(
+            okJson({ data: dtfConfig, version: activeVersion, source: "database" })
+          );
+        }
+        // The reload GET: held open so a draft edit can land mid-flight.
+        return new Promise((resolve) => {
+          resolveReload = resolve;
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${url}`);
     }) as unknown as typeof fetch;
 
     render(<DtfMatrixEditor persistenceEnabled={true} />);
@@ -101,7 +175,7 @@ describe("fetchConfig deferred-GET race guard", () => {
     // Start a reload while the draft is clean — the pre-check passes and the
     // GET is dispatched.
     fireEvent.click(screen.getByRole("button", { name: "Simulate Reload" }));
-    await waitFor(() => expect(callCount).toBe(2));
+    await waitFor(() => expect(configGetCount).toBe(2));
 
     // A draft edit lands after the request started but before it resolves.
     fireEvent.change(priceInput, { target: { value: "42" } });
@@ -140,7 +214,7 @@ describe("fetchConfig deferred-GET race guard", () => {
     await screen.findByRole("heading", { name: "Additional Prints / DTF Flat Fees" });
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Matrix" }));
-    const priceInput = screen.getByLabelText("Approved price for sleeve_print") as HTMLInputElement;
+    const priceInput = screen.getByLabelText("Decoration Price for sleeve_print") as HTMLInputElement;
     expect(priceInput).toHaveValue(6);
 
     fireEvent.click(screen.getByRole("button", { name: "Simulate Reload" }));

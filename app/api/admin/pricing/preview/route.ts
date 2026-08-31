@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
-  PreviewPostBodySchema,
-  calculateDtfMarginPreview,
-  calculateQuoteImpactPreview,
-} from "@/lib/pricing/dtf-margin-preview";
+  DtfMatrixPreviewBodySchema,
+  calculateMatrixPreview,
+  calculateQuoteImpact,
+} from "@/lib/pricing/dtf-matrix-preview";
+import { getBaselineDtfMatrix } from "@/lib/server/pricing-config/baseline";
 import { isPricingPreviewEnabled } from "@/lib/server/pricing-preview-gate";
 import { requireRole } from "@/lib/server/auth/route-guards";
 
-const MAX_BODY_BYTES = 16_384;
+// A preview body carries up to two full matrix drafts (saved + unsaved).
+// Both are size-bounded by DtfMatrixDraftSchema (<=50 tiers x <=20 lanes),
+// so this cap only needs to be generous enough for the largest legal pair.
+const MAX_BODY_BYTES = 65_536;
 
 function disabledResponse() {
   return NextResponse.json({ error: "Not found." }, { status: 404 });
@@ -109,7 +113,8 @@ export async function GET(request: NextRequest) {
     return disabledResponse();
   }
 
-  return NextResponse.json(calculateDtfMarginPreview({ edits: [] }));
+  // Read-only context for the unified editor: the verified baseline matrix.
+  return NextResponse.json(calculateMatrixPreview(getBaselineDtfMatrix()));
 }
 
 export async function POST(request: NextRequest) {
@@ -135,18 +140,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const parsed = PreviewPostBodySchema.safeParse(body);
+  const parsed = DtfMatrixPreviewBodySchema.safeParse(body);
   if (!parsed.success) {
     return validationResponse(parsed.error);
   }
 
-  const preview = calculateDtfMarginPreview({ edits: parsed.data.edits });
-  const quote = parsed.data.quote
-    ? calculateQuoteImpactPreview({ ...parsed.data.quote, edits: parsed.data.edits })
+  const { draft, current, quote } = parsed.data;
+  const preview = calculateMatrixPreview(draft);
+  const quoteImpact = quote
+    ? calculateQuoteImpact({ draft, current, quote })
     : undefined;
 
   return NextResponse.json({
     preview,
-    ...(quote ? { quote } : {}),
+    ...(quoteImpact ? { quote: quoteImpact } : {}),
   });
 }
