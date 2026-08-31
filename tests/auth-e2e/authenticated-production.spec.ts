@@ -124,7 +124,7 @@ test.describe("authenticated production boundary", () => {
     await page.goto("/admin/pricing");
     await expect(page.getByText("PRICING PREVIEW")).toBeVisible();
     await expect(
-      page.getByText("Authenticated production · Session only").first()
+      page.getByText("Authenticated production · Persistent pricing").first()
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "DTF Pricing Matrix" })).toBeVisible();
     await expect(
