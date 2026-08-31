@@ -1039,8 +1039,12 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
         </div>
       )}
 
-      {/* Matrix + Inspector workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4 items-start">
+      {/* Matrix + read-only inspector workspace */}
+      <div
+        className={`grid grid-cols-1 gap-4 items-start ${
+          editing ? "" : "lg:grid-cols-[1fr_340px]"
+        }`}
+      >
         {isDesktop && (
           <div
             data-testid="dtf-matrix-table-panel"
@@ -1050,7 +1054,9 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
               <h3 className="text-[13.5px] font-semibold text-neutral-200">Pricing Matrix</h3>
               <div className="flex items-center gap-3">
                 <span className="text-[11.5px] text-neutral-500">
-                  Choose any row to view or edit its pricing
+                  {editing
+                    ? "Select a row to edit its pricing inline"
+                    : "Choose any row to view its pricing"}
                 </span>
                 {editing && (
                   <div className="flex items-center gap-1.5">
@@ -1107,12 +1113,21 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                     return (
                       <tr
                         key={tierIdx}
+                        onClick={(event) => {
+                          if (
+                            event.target instanceof Element &&
+                            event.target.closest("button, input, select, textarea, a")
+                          ) {
+                            return;
+                          }
+                          setSelectedTierIdx(tierIdx);
+                        }}
                         className={`border-b border-neutral-800/70 hover:bg-neutral-800/40 ${
                           isSelected ? "bg-cyan-900/10 shadow-[inset_3px_0_0_0_rgba(34,211,238,0.6)]" : ""
-                        }`}
+                        } ${editing ? "cursor-pointer" : ""}`}
                       >
                         <td className="py-2 px-3 text-neutral-200 font-semibold sticky left-0 bg-neutral-950 z-10">
-                          <div className="flex min-w-[132px] items-center justify-between gap-2">
+                          <div className="flex min-w-[132px] items-center gap-2">
                             <button
                               type="button"
                               onClick={() => setSelectedTierIdx(tierIdx)}
@@ -1121,19 +1136,6 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                               className="text-left hover:text-cyan-300"
                             >
                               {formatQtyRange(tier.minQty, tier.maxQty)}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedTierIdx(tierIdx)}
-                              aria-label={`${editing ? "Edit" : "View"} pricing for quantity ${tier.tier}`}
-                              aria-pressed={isSelected}
-                              className={`min-h-[28px] rounded border px-2 py-1 text-[10px] font-semibold ${
-                                isSelected
-                                  ? "border-cyan-700/50 bg-cyan-900/20 text-cyan-300"
-                                  : "border-neutral-700 bg-neutral-800 text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"
-                              }`}
-                            >
-                              {isSelected ? (editing ? "Editing" : "Viewing") : editing ? "Edit" : "View"}
                             </button>
                           </div>
                         </td>
@@ -1149,17 +1151,24 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                             }`}
                           >
                             <DtfPriceCell
-                              cellKey={`${cellKeyFor(tierIdx, tier, lane.key)}|readonly`}
+                              cellKey={`${cellKeyFor(tierIdx, tier, lane.key)}${
+                                editing && isSelected ? "" : "|readonly"
+                              }`}
                               tierLabel={tier.tier}
                               laneKey={lane.key}
                               laneLabel={lane.label}
                               price={tier.prices[lane.key]}
                               basis={tierBasis}
                               roundingIncrement={roundingIncrement}
-                              editing={false}
-                              disabled
-                              onPriceChange={() => {}}
-                              onValidityChange={() => {}}
+                              editing={editing && isSelected}
+                              disabled={rollbackInProgress}
+                              persistedError={
+                                cellErrors[cellKeyFor(tierIdx, tier, lane.key)]
+                              }
+                              onPriceChange={(value) =>
+                                updateTierPrice(tierIdx, lane.key, String(value))
+                              }
+                              onValidityChange={handleCellValidityChange}
                             />
                           </td>
                         ))}
@@ -1172,7 +1181,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
           </div>
         )}
 
-        {isDesktop && selectedTier && (
+        {isDesktop && !editing && selectedTier && (
           <aside
             data-testid="dtf-quantity-inspector"
             aria-labelledby="dtf-inspector-heading"

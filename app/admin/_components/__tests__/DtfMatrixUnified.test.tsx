@@ -219,21 +219,31 @@ describe("matrix row controls", () => {
     expect(within(table).queryByRole("columnheader", { name: "Basis" })).not.toBeInTheDocument();
     expect(within(table).queryByTestId("dtf-tier-basis-1+")).not.toBeInTheDocument();
   });
-  it("provides an explicit edit action for every quantity row", async () => {
+  it("selects rows from their safe area and moves the sole inline editor without row actions", async () => {
     await renderEditing();
     fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
 
-    expect(screen.getByRole("button", { name: "Edit pricing for quantity 1+" })).toBeVisible();
-    const editNewTier = screen.getByRole("button", {
-      name: "Edit pricing for quantity 101+",
-    });
-    expect(editNewTier).toBeVisible();
+    expect(screen.queryByRole("button", { name: /(?:Edit|View) pricing for quantity/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dtf-quantity-inspector")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText("Tier 1+ T1 price")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Tier 1+ T1 DTF GM percent")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Tier 1+ T2 price")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Tier 1+ T2 DTF GM percent")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Select quantity 1+" })).toBeVisible();
 
-    fireEvent.click(editNewTier);
-    expect(screen.getByRole("heading", { name: "Editing Pricing: 101+" })).toBeVisible();
-    expect(screen.getByLabelText("Tier 101+ T1 price")).toBeVisible();
+    const secondRow = screen.getByRole("row", { name: /101\+/ });
+    fireEvent.click(secondRow);
+
+    expect(screen.queryByLabelText("Tier 1+ T1 price")).not.toBeInTheDocument();
+    const price = screen.getByLabelText("Tier 101+ T1 price");
+    expect(price).toBeVisible();
     expect(screen.getByLabelText("Tier 101+ T1 DTF GM percent")).toBeVisible();
+    expect(screen.getByLabelText("Tier 101+ T2 price")).toBeVisible();
+    expect(screen.getByLabelText("Tier 101+ T2 DTF GM percent")).toBeVisible();
+
+    fireEvent.click(price);
+    expect(screen.getByLabelText("Tier 101+ T1 price")).toBe(price);
   });
 
   it("spells out gross margin instead of relying on the GM acronym", async () => {
@@ -1022,18 +1032,19 @@ describe("Pricing Studio layout", () => {
     expect(inspector).not.toContainElement(quoteHeading);
   });
 
-  it("changes the inspector's displayed quantity when a different row is selected", async () => {
+  it("moves desktop inline pricing controls when a different row is selected", async () => {
     await renderEditing();
 
     // Add a second row so there is something else to select.
     fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
     fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
-    const inspector = screen.getByTestId("dtf-quantity-inspector");
-    expect(within(inspector).getByText("1-100")).toBeVisible();
+    expect(screen.queryByTestId("dtf-quantity-inspector")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Tier 1+ T1 price")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select quantity 101+" }));
+    fireEvent.click(screen.getByRole("row", { name: /101\+/ }));
 
-    expect(within(inspector).getByText("101+")).toBeVisible();
+    expect(screen.queryByLabelText("Tier 1+ T1 price")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Tier 101+ T1 price")).toBeVisible();
   });
 
   it("renders expandable mobile quantity cards instead of the desktop table below the lg breakpoint", async () => {
@@ -1063,10 +1074,10 @@ describe("Pricing Studio layout", () => {
       window.dispatchEvent(new Event("resize"));
     });
     expect(screen.getByTestId("dtf-matrix-table-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("dtf-quantity-inspector")).toBeInTheDocument();
+    expect(screen.queryByTestId("dtf-quantity-inspector")).not.toBeInTheDocument();
     expect(screen.queryByTestId("dtf-mobile-tier-cards")).not.toBeInTheDocument();
-    // The desktop inspector is the sole editor; the table and retired mobile
-    // path do not duplicate its editable controls.
+    // The selected desktop row is the sole editor; the remounted mobile path
+    // and read-only inspector do not duplicate its editable controls.
     expect(screen.getAllByLabelText("Tier 1+ T1 price")).toHaveLength(1);
     expect(screen.getAllByLabelText("Tier 1+ T1 DTF GM percent")).toHaveLength(1);
   });

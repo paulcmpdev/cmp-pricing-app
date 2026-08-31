@@ -16,9 +16,7 @@ async function editDtfMatrix(page: Page, quantityLabel = "72-143") {
   await openPricing(page);
   const dtf = dtfSection(page);
   await dtf.getByRole("button", { name: "Edit Matrix" }).click();
-  await dtf
-    .getByRole("button", { name: `Select quantity ${quantityLabel}`, exact: true })
-    .click();
+  await dtf.getByRole("row").filter({ hasText: quantityLabel }).click();
   await expect(
     dtf.getByLabel(`Tier ${quantityLabel} T1 DTF GM percent`, { exact: true })
   ).toBeEditable();
@@ -67,12 +65,10 @@ test.describe("Admin Pricing Preview", () => {
       ).toBeVisible();
       await expect(matrixPanel.getByRole("columnheader", { name: "Basis" })).toHaveCount(0);
       await expect(inspector).toBeVisible();
-      const view72 = dtf.getByRole("button", {
-        name: "View pricing for quantity 72-143",
-        exact: true,
-      });
-      await expect(view72).toBeVisible();
-      await view72.click();
+      await expect(
+        dtf.getByRole("button", { name: /(?:Edit|View) pricing for quantity/ })
+      ).toHaveCount(0);
+      await dtf.getByRole("row").filter({ hasText: "72-143" }).click();
       await expect(inspector.getByRole("heading", { name: "Pricing: 72-143" })).toBeVisible();
       await expect(quoteHeading).toBeVisible();
       await expect(inspector.getByRole("heading", { name: "Quote Impact Preview" })).toHaveCount(0);
@@ -140,12 +136,14 @@ test.describe("Admin Pricing Preview", () => {
       ).toHaveCount(0);
 
       await dtf.getByRole("button", { name: "Edit Matrix" }).click();
-      await dtf.getByRole("button", { name: "Select quantity 72-143", exact: true }).click();
+      await expect(dtf.getByTestId("dtf-quantity-inspector")).toHaveCount(0);
+      await dtf.getByRole("row").filter({ hasText: "72-143" }).click();
 
       await expect(dtf.getByLabel("Tier 72-143 T1 price", { exact: true })).toHaveValue("6.55");
       await expect(
         dtf.getByLabel("Tier 72-143 T1 DTF GM percent", { exact: true })
       ).toBeEditable();
+      await expect(dtf.getByLabel("Tier 144-249 T1 price", { exact: true })).toHaveCount(0);
     });
 
     test("direct price edits recalculate the paired DTF GM%", async ({
