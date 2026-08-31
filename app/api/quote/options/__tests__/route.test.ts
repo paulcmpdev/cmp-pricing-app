@@ -17,10 +17,20 @@ const mockDbConfigured = vi.mocked(isPricingConfigDatabaseConfigured);
 const env = process.env as Record<string, string | undefined>;
 
 const savedEnv: Record<string, string | undefined> = {};
-const ENV_KEYS = ["CMP_PRICING_CONFIG_ENABLED", "CMP_DATABASE_URL", "VENDOR_CATALOG_DATABASE_URL"];
+const ENV_KEYS = [
+  "CMP_PRICING_CONFIG_ENABLED",
+  "CMP_DATABASE_URL",
+  "VENDOR_CATALOG_DATABASE_URL",
+  "CMP_AUTH_ENABLED",
+  "CMP_ALLOW_LOCAL_MANAGER_MODE",
+];
 
-function request() {
-  return new NextRequest(new Request("http://localhost/api/quote/options"));
+function request(role?: "manager") {
+  return new NextRequest(
+    new Request("http://localhost/api/quote/options", {
+      headers: role ? { "x-cmp-role": role } : undefined,
+    })
+  );
 }
 
 function version(configType: "dtf_matrix" | "additional_prints", data: unknown) {
@@ -128,6 +138,8 @@ beforeEach(() => {
   for (const key of ENV_KEYS) savedEnv[key] = env[key];
   env.CMP_PRICING_CONFIG_ENABLED = "true";
   env.CMP_DATABASE_URL = "postgres://user:pass@localhost:5432/db";
+  env.CMP_AUTH_ENABLED = "false";
+  env.CMP_ALLOW_LOCAL_MANAGER_MODE = "true";
   mockDbConfigured.mockReturnValue(true);
 });
 
@@ -140,6 +152,18 @@ afterEach(() => {
 });
 
 describe("GET /api/quote/options — staff-safe projection", () => {
+  it("grants the lane-override capability to the auth-disabled local Manager header", async () => {
+    mockGetRepo.mockReturnValue(
+      repoWith(version("dtf_matrix", DTF_DATA), version("additional_prints", AP_DATA)) as never
+    );
+
+    const res = await GET(request("manager"));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+
+    expect(data.canOverridePricingLane).toBe(true);
+  });
+
   it("returns only active lanes and services, sorted by sortOrder, with no COGS/margin/status/internal fields", async () => {
     mockGetRepo.mockReturnValue(
       repoWith(version("dtf_matrix", DTF_DATA), version("additional_prints", AP_DATA)) as never
@@ -165,6 +189,7 @@ describe("GET /api/quote/options — staff-safe projection", () => {
       effectivePrice: 6,
     });
     expect(data.minimumBillableQuantity).toBe(12);
+    expect(data.canOverridePricingLane).toBe(false);
 
     const serialized = JSON.stringify(data);
     for (const internalField of ["cogs", "operatorOperatingCost", "enginePrice", "policyFloor", "manualOverride", "grossMargin", "status", "operatorMinPerShirt", "designerMinPerOrder", "geometryKey"]) {

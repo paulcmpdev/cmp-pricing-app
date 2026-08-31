@@ -55,6 +55,13 @@
     padding-right: 2rem;
   }
 
+  /* Compact inline variant of .cmp-select for controls embedded in summary rows */
+  .cmp-select-compact {
+    @apply cmp-select w-auto py-1 pl-2 text-xs shadow-none;
+    padding-right: 1.5rem;
+    background-position: right 0.35rem center;
+  }
+
   .cmp-label {
     @apply block text-xs font-medium uppercase tracking-wider text-cmp-gray mb-1;
   }

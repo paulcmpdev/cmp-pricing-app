@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/server/auth/route-guards";
+import {
+  requireRole,
+  resolveAuthenticatedProjection,
+} from "@/lib/server/auth/route-guards";
 import { resolveActiveConfig } from "@/lib/server/pricing-config/resolver";
 import type {
   DtfMatrixConfig,
@@ -15,6 +18,8 @@ import type {
 export async function GET(request: NextRequest) {
   const authError = await requireRole(request, "view_quotes");
   if (authError) return authError;
+
+  const projection = await resolveAuthenticatedProjection(request);
 
   const dtfResult = await resolveActiveConfig("dtf_matrix");
   if (!dtfResult.ok) {
@@ -37,6 +42,7 @@ export async function GET(request: NextRequest) {
       : (apResult.data as AdditionalPrintsConfig);
 
   return NextResponse.json({
+    canOverridePricingLane: projection === "manager",
     lanes: dtfConfig.lanes
       .filter((l) => l.active)
       .map((l) => ({ key: l.key, label: l.label })),

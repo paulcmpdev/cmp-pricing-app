@@ -13,6 +13,7 @@ import {
   requireRole,
   resolveAuthenticatedProjection,
 } from "@/lib/server/auth/route-guards";
+import { isAuthEnabled } from "@/lib/server/auth/policy";
 import { resolveActiveConfig } from "@/lib/server/pricing-config/resolver";
 import type { DtfMatrixConfig } from "@/lib/server/pricing-config/schemas";
 
@@ -69,6 +70,20 @@ export async function POST(request: NextRequest) {
         },
       },
       { status: 400 }
+    );
+  }
+
+  const projection = await resolveAuthenticatedProjection(request);
+  const isManager = projection === "manager";
+
+  if (
+    isAuthEnabled() &&
+    parsed.data.tierPriceLane != null &&
+    !isManager
+  ) {
+    return NextResponse.json(
+      { error: "Insufficient permissions." },
+      { status: 403 }
     );
   }
 
@@ -198,11 +213,6 @@ export async function POST(request: NextRequest) {
       { status: 422 }
     );
   }
-
-  // Resolve projection level: auth-aware when CMP_AUTH_ENABLED=true,
-  // otherwise falls back to legacy preview/local-manager behavior.
-  const projection = await resolveAuthenticatedProjection(request);
-  const isManager = projection === "manager";
 
   // Pass dynamic tiers from config
   const dynamicTiers = dtfConfig.tiers;

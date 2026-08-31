@@ -33,6 +33,7 @@ const validBody = { productCost: 3.95, quantity: 84 };
 
 describe("item route manager gate", () => {
   const saved = {
+    CMP_AUTH_ENABLED: env.CMP_AUTH_ENABLED,
     NODE_ENV: env.NODE_ENV,
     VERCEL_ENV: env.VERCEL_ENV,
     CMP_ALLOW_LOCAL_MANAGER_MODE: env.CMP_ALLOW_LOCAL_MANAGER_MODE,
@@ -41,6 +42,8 @@ describe("item route manager gate", () => {
   };
 
   afterEach(() => {
+    if (saved.CMP_AUTH_ENABLED === undefined) delete env.CMP_AUTH_ENABLED;
+    else env.CMP_AUTH_ENABLED = saved.CMP_AUTH_ENABLED;
     env.NODE_ENV = saved.NODE_ENV;
     env.VERCEL_ENV = saved.VERCEL_ENV;
     env.CMP_ALLOW_LOCAL_MANAGER_MODE = saved.CMP_ALLOW_LOCAL_MANAGER_MODE;
@@ -124,5 +127,24 @@ describe("item route manager gate", () => {
 
     expect(data.commissionReserve).toBeDefined();
     expect(data.totalProductionCogs).toBeDefined();
+  });
+
+  it("preserves auth-disabled pricing-lane evaluation for staff projection", async () => {
+    env.CMP_AUTH_ENABLED = "false";
+    env.NODE_ENV = "production";
+    env.VERCEL_ENV = "production";
+    delete env.CMP_ENABLE_ADDITIONAL_LOCATIONS_PREVIEW;
+    delete env.CMP_ALLOW_LOCAL_MANAGER_MODE;
+
+    const defaultRes = await POST(staffRequest(validBody));
+    const overrideRes = await POST(
+      staffRequest({ ...validBody, tierPriceLane: "T2" })
+    );
+    const defaultData = await defaultRes.json();
+    const overrideData = await overrideRes.json();
+
+    expect(defaultRes.status).toBe(200);
+    expect(overrideRes.status).toBe(200);
+    expect(overrideData.salesPrice).not.toBe(defaultData.salesPrice);
   });
 });
