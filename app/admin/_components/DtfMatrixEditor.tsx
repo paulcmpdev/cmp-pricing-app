@@ -764,7 +764,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
       <div className="flex flex-wrap border-b border-neutral-800 bg-neutral-900/40">
         <div className="flex-1 min-w-[200px] border-r border-neutral-800/60 px-4 sm:px-5 py-3">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500 mb-1.5">
-            Lane Focus &middot; Target GM
+            Lane Focus &middot; Target Gross Margin
           </div>
           <div className="flex flex-wrap gap-1.5">
             {activeLanes.map((lane) => (
@@ -1049,7 +1049,9 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
             <div className="flex items-center justify-between gap-3 px-3 py-2.5 border-b border-neutral-800 bg-neutral-900/60">
               <h3 className="text-[13.5px] font-semibold text-neutral-200">Pricing Matrix</h3>
               <div className="flex items-center gap-3">
-                <span className="text-[11.5px] text-neutral-500">Select a quantity to inspect</span>
+                <span className="text-[11.5px] text-neutral-500">
+                  Choose any row to view or edit its pricing
+                </span>
                 {editing && (
                   <div className="flex items-center gap-1.5">
                     <button
@@ -1078,12 +1080,6 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                   <tr className="border-b border-neutral-700 bg-neutral-900">
                     <th className="text-left py-2 px-3 text-neutral-500 font-semibold uppercase tracking-wide text-[10px] sticky left-0 bg-neutral-900 z-10">
                       Quantity
-                    </th>
-                    <th
-                      className="text-left py-2 px-3 text-neutral-500 font-semibold uppercase tracking-wide text-[10px]"
-                      title="Where this tier's DTF cost basis came from, and the worst-case quantity it was costed at."
-                    >
-                      Basis
                     </th>
                     {activeLanes.map((lane) => (
                       <th
@@ -1116,29 +1112,30 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
                         }`}
                       >
                         <td className="py-2 px-3 text-neutral-200 font-semibold sticky left-0 bg-neutral-950 z-10">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTierIdx(tierIdx)}
-                            aria-label={`Select quantity ${tier.tier}`}
-                            aria-pressed={isSelected}
-                            className="text-left hover:text-cyan-300"
-                          >
-                            {formatQtyRange(tier.minQty, tier.maxQty)}
-                          </button>
-                        </td>
-                        <td className="py-2 px-3 text-neutral-500 whitespace-nowrap">
-                          {tierBasis ? (
-                            <span
-                              className="text-[10.5px] font-mono"
-                              title={tierBasis.basis}
-                              data-testid={`dtf-tier-basis-${tier.tier}`}
+                          <div className="flex min-w-[132px] items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTierIdx(tierIdx)}
+                              aria-label={`Select quantity ${tier.tier}`}
+                              aria-pressed={isSelected}
+                              className="text-left hover:text-cyan-300"
                             >
-                              {tierBasis.source === "contract" ? "contract" : "engine"}
-                              <span className="text-neutral-600"> · q{tierBasis.costingQty}</span>
-                            </span>
-                          ) : (
-                            <span className="text-[10.5px] text-neutral-600">--</span>
-                          )}
+                              {formatQtyRange(tier.minQty, tier.maxQty)}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTierIdx(tierIdx)}
+                              aria-label={`${editing ? "Edit" : "View"} pricing for quantity ${tier.tier}`}
+                              aria-pressed={isSelected}
+                              className={`min-h-[28px] rounded border px-2 py-1 text-[10px] font-semibold ${
+                                isSelected
+                                  ? "border-cyan-700/50 bg-cyan-900/20 text-cyan-300"
+                                  : "border-neutral-700 bg-neutral-800 text-neutral-400 hover:border-neutral-600 hover:text-neutral-200"
+                              }`}
+                            >
+                              {isSelected ? (editing ? "Editing" : "Viewing") : editing ? "Edit" : "View"}
+                            </button>
+                          </div>
                         </td>
                         {activeLanes.map((lane) => (
                           <td
@@ -1183,7 +1180,7 @@ export default function DtfMatrixEditor({ persistenceEnabled }: Props) {
           >
             <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-neutral-800 bg-neutral-900/60">
               <h3 id="dtf-inspector-heading" className="text-[13.5px] font-semibold text-neutral-200">
-                Quantity Inspector
+                {editing ? "Editing Pricing" : "Pricing"}: {selectedTier.tier}
               </h3>
               <span className="text-[11.5px] text-neutral-500">{editing ? "Editing" : "Live"}</span>
             </div>

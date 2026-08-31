@@ -209,6 +209,41 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("matrix row controls", () => {
+  it("keeps internal cost-basis diagnostics out of the visible matrix", async () => {
+    mockRoutedFetch();
+    render(<DtfMatrixEditor persistenceEnabled />);
+    await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
+
+    const table = screen.getByTestId("dtf-matrix-table-panel");
+    expect(within(table).queryByRole("columnheader", { name: "Basis" })).not.toBeInTheDocument();
+    expect(within(table).queryByTestId("dtf-tier-basis-1+")).not.toBeInTheDocument();
+  });
+  it("provides an explicit edit action for every quantity row", async () => {
+    await renderEditing();
+    fireEvent.click(screen.getByRole("button", { name: "Manage Quantities" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Add Tier" }));
+
+    expect(screen.getByRole("button", { name: "Edit pricing for quantity 1+" })).toBeVisible();
+    const editNewTier = screen.getByRole("button", {
+      name: "Edit pricing for quantity 101+",
+    });
+    expect(editNewTier).toBeVisible();
+
+    fireEvent.click(editNewTier);
+    expect(screen.getByRole("heading", { name: "Editing Pricing: 101+" })).toBeVisible();
+    expect(screen.getByLabelText("Tier 101+ T1 price")).toBeVisible();
+    expect(screen.getByLabelText("Tier 101+ T1 DTF GM percent")).toBeVisible();
+  });
+
+  it("spells out gross margin instead of relying on the GM acronym", async () => {
+    await renderEditing();
+
+    expect(screen.getByText("Lane Focus · Target Gross Margin")).toBeVisible();
+    expect(screen.getAllByText("DTF Gross Margin %").length).toBeGreaterThan(0);
+  });
+});
+
 describe("paired price / DTF GM% cells", () => {
   it("shows price and derived DTF GM% together in read-only mode", async () => {
     mockRoutedFetch();
@@ -670,16 +705,14 @@ describe("structure controls are preserved", () => {
     );
   });
 
-  it("shows each tier's cost basis and its source", async () => {
+  it("keeps the selected tier's cost source available in the inspector", async () => {
     const calls = mockRoutedFetch();
     render(<DtfMatrixEditor persistenceEnabled />);
     await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
     await waitFor(() => expect(previewCalls(calls).length).toBeGreaterThan(0));
 
-    const basisCell = await screen.findByTestId("dtf-tier-basis-1+");
-    expect(basisCell).toHaveTextContent("engine");
-    expect(basisCell).toHaveTextContent("q13");
-    expect(basisCell).toHaveAttribute("title", BASIS.basis);
+    const inspector = await screen.findByTestId("dtf-quantity-inspector");
+    expect(within(inspector).getByText("engine · q13")).toBeVisible();
   });
 
   it("disables DTF GM% for a tier whose cost basis is not resolved yet", async () => {
@@ -957,7 +990,7 @@ describe("preview response ordering", () => {
 });
 
 describe("Pricing Studio layout", () => {
-  it("does not render a visible Tier column header", async () => {
+  it("shows only quantity and pricing lanes as matrix columns", async () => {
     mockRoutedFetch();
     render(<DtfMatrixEditor persistenceEnabled />);
     await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
@@ -965,16 +998,16 @@ describe("Pricing Studio layout", () => {
     const table = await screen.findByTestId("dtf-matrix-table-panel");
     expect(within(table).queryByText("Tier")).not.toBeInTheDocument();
     expect(within(table).getByText("Quantity")).toBeVisible();
-    expect(within(table).getByText("Basis")).toBeVisible();
+    expect(within(table).queryByText("Basis")).not.toBeInTheDocument();
   });
 
-  it("shows a Quantity Inspector alongside the matrix", async () => {
+  it("shows the selected quantity's pricing alongside the matrix", async () => {
     mockRoutedFetch();
     render(<DtfMatrixEditor persistenceEnabled />);
     await screen.findByRole("heading", { name: "DTF Pricing Matrix" });
 
     const inspector = await screen.findByTestId("dtf-quantity-inspector");
-    expect(within(inspector).getByText("Quantity Inspector")).toBeVisible();
+    expect(within(inspector).getByRole("heading", { name: "Pricing: 1+" })).toBeVisible();
   });
 
   it("renders Quote Impact as a section outside the Quantity Inspector", async () => {

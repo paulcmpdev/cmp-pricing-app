@@ -65,8 +65,15 @@ test.describe("Admin Pricing Preview", () => {
       await expect(
         dtf.getByRole("button", { name: "Select quantity 2500+", exact: true })
       ).toBeVisible();
+      await expect(matrixPanel.getByRole("columnheader", { name: "Basis" })).toHaveCount(0);
       await expect(inspector).toBeVisible();
-      await expect(inspector.getByRole("heading", { name: "Quantity Inspector" })).toBeVisible();
+      const view72 = dtf.getByRole("button", {
+        name: "View pricing for quantity 72-143",
+        exact: true,
+      });
+      await expect(view72).toBeVisible();
+      await view72.click();
+      await expect(inspector.getByRole("heading", { name: "Pricing: 72-143" })).toBeVisible();
       await expect(quoteHeading).toBeVisible();
       await expect(inspector.getByRole("heading", { name: "Quote Impact Preview" })).toHaveCount(0);
       await expect(additionalHeading).toBeVisible();

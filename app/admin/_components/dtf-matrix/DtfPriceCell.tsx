@@ -268,7 +268,7 @@ export default function DtfPriceCell({
           htmlFor={`gm-${describedBy}`}
           className="text-[9px] font-bold uppercase tracking-wide text-neutral-500"
         >
-          DTF GM%
+          DTF Gross Margin %
         </label>
         <div className="flex items-center gap-1 justify-end">
           <input
