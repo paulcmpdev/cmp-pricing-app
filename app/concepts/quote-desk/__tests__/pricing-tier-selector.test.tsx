@@ -175,15 +175,37 @@ describe("Pricing Tier selector", () => {
     expect(screen.getByLabelText(/per-item price/i)).not.toBeNull();
   });
 
-  it("preserves evaluation mode behavior alongside the Pricing Tier control", async () => {
-    mockFetch(fetchMock, makeOptionsResponse({ canOverridePricingLane: true }));
-    await renderQuoteDesk("evaluation");
+  it("refreshes the authoritative capability when local evaluation switches to Manager", async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/api/quote/options")) {
+        const headers = new Headers(init?.headers);
+        const isLocalManager = headers.get("x-cmp-role") === "manager";
+        return Promise.resolve(
+          okJson(makeOptionsResponse({ canOverridePricingLane: isLocalManager }))
+        );
+      }
+      if (url.includes("/api/quote/item")) {
+        return Promise.resolve(okJson(makeItemQuote()));
+      }
+      return Promise.resolve(okJson({}));
+    });
 
-    // Local evaluation Staff/Manager toggle still present.
-    expect(
-      screen.getByRole("switch", { name: "Toggle Manager mode" })
-    ).not.toBeNull();
-    // Pricing Tier selector is independent of the local role toggle.
+    await renderQuoteDesk("evaluation");
+    expect(screen.queryByLabelText("Pricing Tier")).toBeNull();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Toggle Manager mode" }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const optionsCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/quote/options")
+    );
+    expect(optionsCalls).toHaveLength(2);
+    expect(new Headers((optionsCalls[1][1] as RequestInit).headers).get("x-cmp-role")).toBe(
+      "manager"
+    );
     expect(screen.getByLabelText("Pricing Tier")).not.toBeNull();
   });
 });

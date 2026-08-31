@@ -195,10 +195,17 @@ export default function QuoteDeskClient({
     };
   }, [bumpLocationGeneration, nextItemToken]);
 
-  // Fetch available services and pricing lanes on mount
+  // Fetch available services and pricing lanes. The primary app always relies
+  // on server-resolved identity. Evaluation mode re-fetches when its local
+  // Staff/Manager toggle changes so the existing local-only role header can
+  // resolve the same authoritative capability.
   useEffect(() => {
     let active = true;
-    fetch("/api/quote/options")
+    if (!isPrimary) setCanOverridePricingLane(false);
+    const headers = !isPrimary && role === "manager"
+      ? { "x-cmp-role": "manager" }
+      : undefined;
+    fetch("/api/quote/options", headers ? { headers } : undefined)
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
@@ -229,7 +236,7 @@ export default function QuoteDeskClient({
     return () => {
       active = false;
     };
-  }, []);
+  }, [isPrimary, role]);
 
   // --- Item price calculation ---
   const calculateItem = useCallback(async () => {
