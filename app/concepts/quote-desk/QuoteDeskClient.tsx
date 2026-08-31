@@ -122,7 +122,11 @@ export default function QuoteDeskClient({
 
   // Dynamic services fetched from /api/quote/options
   const [availableServices, setAvailableServices] = useState<Array<{key: string; name: string; effectivePrice: number}>>([]);
+  const [lanes, setLanes] = useState<Array<{ key: string; label: string }>>([]);
   const [selectedLane, setSelectedLane] = useState("");
+  // Authoritative from /api/quote/options — fails closed (no override control)
+  // until the server confirms the session may change the pricing lane.
+  const [canOverridePricingLane, setCanOverridePricingLane] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
 
   // Abort controllers for debounced requests
@@ -203,6 +207,8 @@ export default function QuoteDeskClient({
         }
         if (!active) return;
         setAvailableServices(data.services);
+        setLanes(data.lanes);
+        setCanOverridePricingLane(data.canOverridePricingLane === true);
         setSelectedLane((current) =>
           data.lanes.some((lane: { key: string }) => lane.key === current)
             ? current
@@ -213,6 +219,8 @@ export default function QuoteDeskClient({
       .catch((error: unknown) => {
         if (!active) return;
         setAvailableServices([]);
+        setLanes([]);
+        setCanOverridePricingLane(false);
         setSelectedLane("");
         setOptionsError(
           error instanceof Error ? error.message : "Pricing options are unavailable."
@@ -241,7 +249,9 @@ export default function QuoteDeskClient({
       if (isNaN(cost) || cost < 0) return;
       body = { productCost: cost, quantity: qty };
     }
-    body.tierPriceLane = selectedLane;
+    if (canOverridePricingLane) {
+      body.tierPriceLane = selectedLane;
+    }
 
     itemAbort.current?.abort();
     const controller = new AbortController();
@@ -292,7 +302,7 @@ export default function QuoteDeskClient({
         setItemLoading(false);
       }
     }
-  }, [productMode, selectedSku, selectedCatalogVariantId, manualCost, quantity, role, nextItemToken, selectedLane]);
+  }, [productMode, selectedSku, selectedCatalogVariantId, manualCost, quantity, role, nextItemToken, selectedLane, canOverridePricingLane]);
 
   useEffect(() => {
     if (productMode !== "vendor") return;
@@ -656,6 +666,14 @@ export default function QuoteDeskClient({
     invalidateAllLocations();
     setRole(nextRole);
   };
+
+  const handleLaneChange = (nextLane: string) => {
+    invalidateItemQuote();
+    setSelectedLane(nextLane);
+  };
+
+  const selectedLaneLabel =
+    lanes.find((lane) => lane.key === selectedLane)?.label || selectedLane;
 
   const changeProductMode = (nextMode: ProductMode) => {
     if (shouldClearItemQuoteForVendorSelectionChange(productMode, nextMode)) {
@@ -1085,8 +1103,44 @@ export default function QuoteDeskClient({
                 Decoration
               </h2>
               <span className="text-cmp-gray text-[11px]">
-                DTF · Average · 10&times;10 in · 1 loc · Tier Matrix {selectedLane || "—"}
+                DTF · Average · 10&times;10 in · 1 loc
               </span>
+              <div className="flex items-center gap-1.5">
+                {canOverridePricingLane ? (
+                  <>
+                    <label
+                      htmlFor="pricing-tier-select"
+                      className="text-[10px] font-medium uppercase tracking-wider text-cmp-gray shrink-0"
+                    >
+                      Pricing Tier
+                    </label>
+                    <select
+                      id="pricing-tier-select"
+                      className="cmp-select-compact"
+                      value={selectedLane}
+                      onChange={(e) => handleLaneChange(e.target.value)}
+                    >
+                      {lanes.map((lane) => (
+                        <option key={lane.key} value={lane.key}>
+                          {lane.label}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-cmp-gray shrink-0">
+                      Pricing Tier
+                    </span>
+                    <span
+                      className="text-xs font-medium text-cmp-charcoal"
+                      data-testid="pricing-tier-readonly"
+                    >
+                      {selectedLaneLabel || "—"}
+                    </span>
+                  </>
+                )}
+              </div>
               <span className="text-[10px] text-cmp-gray/60 ml-auto hidden sm:inline">
                 Fixed P0
               </span>
